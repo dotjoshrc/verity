@@ -7,3 +7,16 @@ run = "golangci-lint run --timeout 5m"
 
 [tasks.test]
 run = "go test -v ./..."
+
+# Verity's own tests that need a real Postgres. The compose project name is fixed,
+# so two concurrent runs of this task would collide. Unlike verity's stacks, this one
+# publishes a port (on a random loopback port) so `go test` on the host can reach it.
+[tasks.test-integration]
+run = '''
+set -e
+compose="docker compose -f providers/postgres/testdata/compose.yaml -p verity-test-pg"
+trap "$compose down -v" EXIT
+$compose up -d --wait
+addr=$($compose port db 5432)
+VERITY_TEST_POSTGRES="postgres://postgres:postgres@$addr/postgres?sslmode=disable" go test -count=1 ./...
+'''
