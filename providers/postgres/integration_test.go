@@ -14,6 +14,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/dotjoshrc/verity"
 	"github.com/dotjoshrc/verity/internal/core"
 )
 
@@ -191,4 +192,30 @@ func TestMissingSourceIsAnError(t *testing.T) {
 
 	_, err := (&provider{}).Provision(context.Background(), core.Request{RunID: "r", SuiteID: randHex(t), Endpoint: ep})
 	require.ErrorContains(t, err, "verity_does_not_exist")
+}
+
+type dbSuite struct{ verity.Suite }
+
+// TestThroughNewSuite runs the real provider through verity.NewSuite: it checks
+// the init registration, verity.Get, and that t.Cleanup releases the pool.
+func TestThroughNewSuite(t *testing.T) {
+	ep := sourceDatabase(t, endpoint(t))
+	admin := open(t, ep, adminDatabase)
+
+	doc, err := core.Discovery{RunID: randHex(t)[:6], Backends: map[string]core.Endpoint{"db": ep}}.Encode()
+	require.NoError(t, err)
+	t.Setenv(core.DiscoveryEnv, doc)
+
+	var db *Database
+	t.Run("suite", func(t *testing.T) {
+		s := verity.NewSuite[dbSuite](t, verity.Use("db"))
+		db = verity.Get[*Database](s, "db")
+		dropOnCleanup(t, admin, db.Name())
+
+		var count int
+		require.NoError(t, db.DB().QueryRow("SELECT count(*) FROM items").Scan(&count))
+		require.Equal(t, 1, count)
+	})
+
+	require.Error(t, db.DB().Ping(), "the suite's cleanup released the pool")
 }

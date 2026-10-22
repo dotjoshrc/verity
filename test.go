@@ -31,11 +31,12 @@ func (tests Tests[TReq, TRes]) Run(t *testing.T, testFn func(t *testing.T, test 
 				test.BeforeFunc(t)
 			}
 
-			testFn(t, test)
-
+			// Through t.Cleanup so it also runs when testFn fails fatally.
 			if test.AfterFunc != nil {
-				test.AfterFunc(t)
+				t.Cleanup(func() { test.AfterFunc(t) })
 			}
+
+			testFn(t, test)
 		})
 	}
 }

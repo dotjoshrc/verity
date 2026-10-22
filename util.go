@@ -1,8 +1,6 @@
 package verity
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"net/url"
 	"regexp"
 	"runtime"
@@ -31,14 +29,4 @@ func getCaller(t *testing.T) string {
 	name = strings.ToLower(regexp.MustCompile("[^a-zA-Z0-9]+").ReplaceAllString(name, "_"))
 
 	return name
-}
-
-func generateID() string {
-	b := make([]byte, 32)
-	_, err := rand.Read(b)
-	if err != nil {
-		panic(err)
-	}
-
-	return hex.EncodeToString(b)
 }
