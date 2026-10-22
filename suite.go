@@ -173,7 +173,8 @@ func isTestMethod(m reflect.Method) bool {
 // NewSuite must run under `verity run`, which tells it what backends exist. It
 // provisions every verity.Use resource concurrently, and releases them with
 // t.Cleanup. The order is: set the ID and unique name, call Init, read discovery,
-// provision, then merge the resources' env.
+// provision, merge the resources' env, then start the verity.WithService service
+// and wait until it is ready.
 //
 // Example usage:
 //
@@ -211,15 +212,28 @@ func NewSuite[TSuite any](t *testing.T, opts ...Option) *TSuite {
 		opt.apply(&cfg)
 	}
 
+	// Validate before provisioning, so a bad option does not cost a clone.
+	if len(cfg.services) > 1 {
+		t.Fatal("verity.WithService is used twice")
+	}
+	if len(cfg.services) == 1 && cfg.services[0].fn == nil {
+		t.Fatal("verity.WithService needs a function")
+	}
+
 	// Discovery is only required when a suite asks for a backend, so suites
 	// without Use still run under a plain `go test`.
+	var env map[string]string
 	if len(cfg.uses) > 0 {
 		disc, err := core.DecodeDiscovery(os.Getenv(core.DiscoveryEnv))
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		provisionUses(t, suite, disc, cfg.uses)
+		env = provisionUses(t, suite, disc, cfg.uses)
+	}
+
+	if len(cfg.services) == 1 {
+		startService(t, env, cfg.services[0])
 	}
 
 	return &s

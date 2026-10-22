@@ -47,10 +47,10 @@ type plan struct {
 	endpoint core.Endpoint
 }
 
-// provisionUses provisions every use concurrently and stores the handles and
-// merged env on the suite. Releases are registered with t.Cleanup in Use order, so
+// provisionUses provisions every use concurrently, stores the handles and merged
+// env on the suite, and returns the env. Releases are registered with t.Cleanup in Use order, so
 // they run in reverse, and run even when this fails part way.
-func provisionUses(t *testing.T, suite TestSuite, disc *core.Discovery, uses []use) {
+func provisionUses(t *testing.T, suite TestSuite, disc *core.Discovery, uses []use) map[string]string {
 	t.Helper()
 
 	plans := make([]plan, len(uses))
@@ -128,6 +128,8 @@ func provisionUses(t *testing.T, suite TestSuite, disc *core.Discovery, uses []u
 	}
 
 	suite.setProvisioned(handles, env)
+
+	return env
 }
 
 func releaser(t *testing.T, name string, res *core.Resource) func() {

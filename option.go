@@ -9,7 +9,8 @@ type Option interface {
 
 // config is what the options collect, for NewSuite to act on.
 type config struct {
-	uses []use
+	uses     []use
+	services []serviceConfig
 }
 
 type use struct {
@@ -28,5 +29,19 @@ func (f optionFunc) apply(c *config) { f(c) }
 func Use(name string, opts ...any) Option {
 	return optionFunc(func(c *config) {
 		c.uses = append(c.uses, use{name: name, opts: opts})
+	})
+}
+
+// WithService starts the service under test in-process once the Use resources are
+// provisioned, wired to their env, and waits for it to be ready. It is stopped
+// before the resources are released.
+func WithService(fn ServiceFunc, opts ...ServiceOption) Option {
+	sc := serviceConfig{fn: fn, readyPath: defaultReadyPath, readyTimeout: defaultReadyTimeout, stopTimeout: defaultStopTimeout}
+	for _, o := range opts {
+		o(&sc)
+	}
+
+	return optionFunc(func(c *config) {
+		c.services = append(c.services, sc)
 	})
 }

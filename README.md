@@ -47,7 +47,40 @@ integration testing.
 
 ## How it works
 
-<!--TODO: Implement this-->
+Verity runs many suites in parallel against **one shared, ephemeral compose
+stack**. Each suite gets its own slice of every backend (today, a Postgres
+database cloned from the schema your compose stack already created) and its own
+in-process instance of your service, wired to that slice.
+
+1. Label the backends in your compose file. Compose stays the only source of
+   truth; there is no second config.
+
+   ```yaml
+   services:
+     db:
+       image: postgres:17
+       environment:
+         POSTGRES_PASSWORD: postgres
+         POSTGRES_DB: app # the database holding your schema; suites clone it
+       labels:
+         verity.type: postgres
+       healthcheck:
+         test: pg_isready -U postgres
+   ```
+
+2. `verity run` brings the stack up with ephemeral ports bound to `127.0.0.1`,
+   then runs `go test` on the host against it. Each run has its own compose
+   project and ports, so concurrent runs cannot collide.
+3. In a suite, `verity.Use` provisions a slice of a backend, and
+   `verity.WithService` starts your service on it. Your service needs an
+   injectable entrypoint that reads config through the `getenv` it is given, not
+   `os.Getenv`, and stops when its context is cancelled.
+
+> **Status:** early. The library side works: `Use`, `Get`, `WithService`, and the
+> Postgres provider. The CLI does not yet bring up the stack and run `go test`;
+> that is the next milestone. Suites that call `Use` need `VERITY_DISCOVERY`,
+> which only `verity run` sets, so they fail under a plain `go test` with a
+> message saying so.
 
 ## CLI
 
@@ -80,7 +113,10 @@ go get github.com/dotjoshrc/verity@latest
 ### Basic Usage
 
 ```go
-import "github.com/dotjoshrc/verity" 
+import (
+  "github.com/dotjoshrc/verity"
+  "github.com/dotjoshrc/verity/providers/postgres"
+)
 
 type MySuite struct {
     verity.Suite
@@ -91,7 +127,22 @@ func (s *MySuite) TestSomething(t *testing.T) {
 }
 
 func TestMySuite(t *testing.T) {
-  suite := verity.NewSuite[MySuite](t)
+  suite := verity.NewSuite[MySuite](t,
+    verity.Use("db"), // compose service name; its verity.type label selects the provider
+    verity.WithService(func(ctx context.Context, env verity.Env) error {
+      // Read config through env.Getenv and serve on env.Listener.
+      return myservice.Run(ctx, env.Getenv, env.Listener())
+    }),
+  )
+
+  db := verity.Get[*postgres.Database](suite, "db") // this suite's own database
+  _ = db.DB()
+
   verity.RunSuite(suite)
 }
 ```
+
+`WithService` waits for `GET /healthz` to return 200; use `verity.ReadyPath` to
+change the path. `postgres.EnvName` sets the env var that carries the database
+URL (default `DATABASE_URL`). Everything is released when the test ends, the
+service first and then the resources.
