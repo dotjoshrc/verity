@@ -20,3 +20,6 @@ $compose up -d --wait
 addr=$($compose port db 5432)
 VERITY_TEST_POSTGRES="postgres://postgres:postgres@$addr/postgres?sslmode=disable" go test -count=1 ./...
 '''
+
+[tasks.format]
+run = "dprint fmt '**/*.{go,yaml,md}'"
