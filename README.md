@@ -8,10 +8,9 @@ Verity is a Go testing framework designed to simplify the process of writing and
 running integration tests. It provides a structured way to define test suites,
 manage test dependencies, and execute tests in a consistent manner.
 
-I have strong opinions about how integration tests should be designed and run. I
-want to create a framework that enforces these opinions and makes it easy for
-developers to write integration tests that are maintainable, reliable, and easy
-to understand.
+It is opinionated. Integration tests should run against real infrastructure,
+each suite isolated from the others, with a clear setup and teardown. Verity
+enforces that, so the tests you write are reliable and easy to maintain.
 
 This isn't meant to compete with existing testing frameworks like `testing` or
 `testify`. Instead, this was created to provide more specific functionality for
