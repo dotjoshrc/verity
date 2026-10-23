@@ -124,4 +124,34 @@ func TestEndToEnd(t *testing.T) {
 		}
 		require.Empty(t, leftovers(t, volumesBefore))
 	})
+
+	t.Run("examples/todo: parallel suites share one Postgres", func(t *testing.T) {
+		dir, err := filepath.Abs("../../examples/todo")
+		require.NoError(t, err)
+
+		// Stream container create events for this directory's `db` service. A replay
+		// with --since/--until reads only the daemon's last 256 events, which a busy
+		// daemon or the db healthcheck can push the create event out of.
+		var created bytes.Buffer
+		events := exec.Command("docker", "events", "--filter", "type=container", "--filter", "event=create",
+			"--filter", "label=com.docker.compose.service=db", "--filter", "label=com.docker.compose.project.working_dir="+dir,
+			"--format", "{{.Actor.ID}}")
+		events.Stdout = &created
+		require.NoError(t, events.Start())
+		time.Sleep(time.Second) // let it attach before the stack starts
+
+		cmd := exec.Command(bin, "run", "--", "-v")
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(out))
+
+		require.NoError(t, events.Process.Kill())
+		_ = events.Wait()
+
+		// The PASS lines, not just the package lines: a skipped suite also prints "ok".
+		require.Contains(t, string(out), "--- PASS: TestAlpha/TestTodosAreIsolated")
+		require.Contains(t, string(out), "--- PASS: TestBeta/TestTodosAreIsolated")
+		require.Len(t, strings.Fields(created.String()), 1, "want one Postgres container for the whole run")
+		require.Empty(t, leftovers(t, volumesBefore))
+	})
 }

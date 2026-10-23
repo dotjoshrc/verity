@@ -1,0 +1,27 @@
+# One shared Postgres for every suite. verity publishes its port (on 127.0.0.1)
+# and clones the `todo` database once per suite, so no `ports` here.
+services:
+  db:
+    image: postgres:17-alpine
+    labels: { verity.type: postgres }
+    environment: { POSTGRES_PASSWORD: postgres, POSTGRES_DB: todo }
+    healthcheck:
+      # -h 127.0.0.1: the image's init server only listens on the unix socket, so
+      # a socket check can pass before the real server is up.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres"]
+      interval: 1s
+      retries: 30
+
+  # One-shot: creates the schema in `todo`. verity waits for it to exit 0 before
+  # any suite starts.
+  schema:
+    image: postgres:17-alpine
+    labels: { verity.wait: "true" }
+    depends_on: { db: { condition: service_healthy } }
+    environment: { PGPASSWORD: postgres }
+    volumes: ["./migrations:/migrations:ro"]
+    command: [
+      "sh",
+      "-c",
+      "psql -v ON_ERROR_STOP=1 -h db -U postgres -d todo -f /migrations/001_init.sql",
+    ]
