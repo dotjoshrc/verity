@@ -118,8 +118,7 @@ func runAction(ctx context.Context, c *cli.Command) (err error) {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	}
 
-	var exitErr *exec.ExitError
-	if errors.As(runErr, &exitErr) {
+	if exitErr, ok := errors.AsType[*exec.ExitError](runErr); ok {
 		return cli.Exit(fmt.Sprintf("go test failed: %v", runErr), exitErr.ExitCode())
 	} else if runErr != nil {
 		return fmt.Errorf("run go test: %w", runErr)

@@ -54,7 +54,7 @@ func open(t *testing.T, ep core.Endpoint, database string) *sql.DB {
 
 	db, err := sql.Open("pgx", dsn(ep, database))
 	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { _ = db.Close() })
 
 	return db
 }
@@ -110,16 +110,14 @@ func TestProvisionConcurrent(t *testing.T) {
 	errs := make([]error, n)
 	var wg sync.WaitGroup
 	for i := range n {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			res, err := providers[i%2].Provision(context.Background(), core.Request{RunID: runID, SuiteID: suiteIDs[i], Endpoint: ep})
 			if err != nil {
 				errs[i] = err
 				return
 			}
 			dbs[i], envs[i] = res.Handle.(*Database), res.Env
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -177,8 +175,8 @@ func TestLingeringSessionOnSourceDoesNotFailTheClone(t *testing.T) {
 	held, err := pool.Conn(context.Background())
 	require.NoError(t, err)
 	time.AfterFunc(300*time.Millisecond, func() {
-		held.Close() // returns the conn to the pool; closing the pool ends the session
-		pool.Close()
+		_ = held.Close() // returns the conn to the pool; closing the pool ends the session
+		_ = pool.Close()
 	})
 
 	res, err := (&provider{}).Provision(context.Background(), core.Request{RunID: "r", SuiteID: randHex(t), Endpoint: ep})

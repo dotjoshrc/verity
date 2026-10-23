@@ -79,9 +79,7 @@ func provisionUses(t *testing.T, suite TestSuite, disc *core.Discovery, uses []u
 
 	var wg sync.WaitGroup
 	for i, p := range plans {
-		wg.Add(1)
-		go func() { // only collects errors: Fatal must come from the test goroutine
-			defer wg.Done()
+		wg.Go(func() { // only collects errors: Fatal must come from the test goroutine
 			defer func() { // a panic here would end the binary before any cleanup runs
 				if r := recover(); r != nil {
 					errs[i] = fmt.Errorf("provider panicked: %v", r)
@@ -95,7 +93,7 @@ func provisionUses(t *testing.T, suite TestSuite, disc *core.Discovery, uses []u
 				err = errors.New("provider returned no resource")
 			}
 			results[i], errs[i] = res, err
-		}()
+		})
 	}
 	wg.Wait()
 

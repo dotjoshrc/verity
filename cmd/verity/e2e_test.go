@@ -101,15 +101,19 @@ func TestEndToEnd(t *testing.T) {
 		require.NoError(t, err)
 		cmd.Stderr = &stderr
 		require.NoError(t, cmd.Start())
+		t.Cleanup(func() { _ = cmd.Process.Kill() }) // no-op once it has exited; stops a hung run from leaking the stack
 
 		// The test prints "=== RUN" once it is running, so the stack is up by then.
+		started := false
 		sc := bufio.NewScanner(stdout)
 		for sc.Scan() {
 			seen.WriteString(sc.Text() + "\n")
 			if strings.Contains(sc.Text(), "=== RUN   TestSlow") {
+				started = true
 				break
 			}
 		}
+		require.True(t, started, "verity exited before the test started\n"+seen.String()+stderr.String())
 		require.NoError(t, cmd.Process.Signal(os.Interrupt))
 
 		done := make(chan error, 1)
@@ -118,9 +122,10 @@ func TestEndToEnd(t *testing.T) {
 			done <- cmd.Wait()
 		}()
 		select {
-		case <-done:
+		case err := <-done:
+			t.Logf("verity exited after SIGINT: %v", err) // the exit code is not part of the contract; cleanup is
 		case <-time.After(time.Minute):
-			t.Fatal("verity did not exit after SIGINT\n" + seen.String())
+			t.Fatal("verity did not exit after SIGINT\n" + seen.String() + stderr.String())
 		}
 		require.Empty(t, leftovers(t, volumesBefore))
 	})

@@ -239,7 +239,7 @@ func (s *parallelSuite) AfterSuite(*testing.T) error { rec.event("afterSuite"); 
 
 func TestNewSuiteWithoutUseNeedsNoDiscovery(t *testing.T) {
 	t.Setenv(core.DiscoveryEnv, "")
-	os.Unsetenv(core.DiscoveryEnv)
+	_ = os.Unsetenv(core.DiscoveryEnv)
 
 	s := NewSuite[fakeSuite](t)
 	require.NotEmpty(t, s.ID())

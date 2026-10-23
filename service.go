@@ -97,7 +97,7 @@ func startService(t *testing.T, env map[string]string, sc serviceConfig) {
 			t.Errorf("service did not return within %s of its context being cancelled", sc.stopTimeout)
 		}
 
-		ln.Close() // usually already closed by the service
+		_ = ln.Close() // usually already closed by the service
 	})
 
 	waitReady(t, "http://127.0.0.1:"+port+sc.readyPath, sc.readyTimeout, exited, &runErr)
@@ -118,7 +118,7 @@ func waitReady(t *testing.T, url string, timeout time.Duration, exited <-chan st
 	for {
 		resp, err := client.Get(url)
 		if err == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
 				return
 			}

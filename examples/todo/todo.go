@@ -20,7 +20,7 @@ func Run(ctx context.Context, getenv func(string) string, ln net.Listener) error
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -46,7 +46,7 @@ func Run(ctx context.Context, getenv func(string) string, ln net.Listener) error
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 
 		titles := []string{}
 		for rows.Next() {
@@ -61,7 +61,7 @@ func Run(ctx context.Context, getenv func(string) string, ln net.Listener) error
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		json.NewEncoder(w).Encode(titles)
+		_ = json.NewEncoder(w).Encode(titles)
 	})
 
 	srv := &http.Server{Handler: mux}
@@ -77,9 +77,9 @@ func Run(ctx context.Context, getenv func(string) string, ln net.Listener) error
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		srv.Close()
+		_ = srv.Close()
 		return err
 	}
-	<-served // nothing outlives the service once Run returns
-	return nil
+	err = <-served // nothing outlives the service once Run returns
+	return err
 }

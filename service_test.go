@@ -24,7 +24,7 @@ func toyService(health http.HandlerFunc, started func(Env)) ServiceFunc {
 		mux.HandleFunc("/healthz", health)
 		srv := &http.Server{Handler: mux}
 		down := make(chan struct{})
-		go func() { defer close(down); <-ctx.Done(); srv.Shutdown(context.Background()) }()
+		go func() { defer close(down); <-ctx.Done(); _ = srv.Shutdown(context.Background()) }()
 
 		err := srv.Serve(env.Listener())
 		<-down // return only once Shutdown has finished, so nothing outlives the service
@@ -122,8 +122,8 @@ func init() {
 							if err != nil {
 								return
 							}
-							c.Write([]byte("HTTP/1.0 200 OK\r\n\r\n"))
-							c.Close()
+							_, _ = c.Write([]byte("HTTP/1.0 200 OK\r\n\r\n"))
+							_ = c.Close()
 						}
 					}()
 					<-ctx.Done()

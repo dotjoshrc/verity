@@ -51,7 +51,7 @@ func Post(t *testing.T, base, title string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("POST /todos: status %d", resp.StatusCode)
 	}
@@ -65,7 +65,7 @@ func List(t *testing.T, base string) []string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var titles []string
 	if err := json.NewDecoder(resp.Body).Decode(&titles); err != nil {
