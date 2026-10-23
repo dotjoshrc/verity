@@ -1,0 +1,15 @@
+services:
+  db:
+    image: postgres:17-alpine
+    labels: { verity.type: postgres }
+    environment: { POSTGRES_PASSWORD: postgres }
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 1s
+      retries: 30
+  schema:
+    image: postgres:17-alpine
+    labels: { verity.wait: "1" }
+    depends_on: { db: { condition: service_healthy } }
+    environment: { PGPASSWORD: postgres }
+    command: ["sh", "-c", "psql -h db -U postgres -c 'create table t(i int)'"]

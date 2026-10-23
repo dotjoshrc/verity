@@ -39,5 +39,16 @@ func newConfiguration(c *cli.Command) *Configuration {
 		cfg.GoTestArgs = append(cfg.GoTestArgs, "-v")
 	}
 
+	if run := c.String("go-run"); run != "" {
+		cfg.GoTestArgs = append(cfg.GoTestArgs, "-run="+run)
+	}
+
+	if timeout := c.String("go-timeout"); timeout != "" {
+		cfg.GoTestArgs = append(cfg.GoTestArgs, "-timeout="+timeout)
+	}
+
+	// Everything after `--` goes to go test unchanged.
+	cfg.GoTestArgs = append(cfg.GoTestArgs, c.Args().Slice()...)
+
 	return cfg
 }

@@ -2,14 +2,10 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/log"
-	"github.com/docker/cli/cli/command"
-	"github.com/docker/cli/cli/flags"
-	"github.com/docker/compose/v5/pkg/api"
-	"github.com/docker/compose/v5/pkg/compose"
 	altsrc "github.com/urfave/cli-altsrc/v3"
 	yaml "github.com/urfave/cli-altsrc/v3/yaml"
 	"github.com/urfave/cli/v3"
@@ -64,6 +60,26 @@ func newRunCommand() *cli.Command {
 				Sources: sourceChain("go.fail_fast"),
 			},
 			&cli.StringFlag{
+				Name:    "go-run",
+				Usage:   "Only run tests matching this regexp (go test -run).",
+				Sources: sourceChain("go.run"),
+			},
+			&cli.StringFlag{
+				Name:    "go-timeout",
+				Usage:   "Test timeout (go test -timeout). Go's own default is 10m.",
+				Sources: sourceChain("go.timeout"),
+			},
+			&cli.DurationFlag{
+				Name:    "docker-compose-wait-timeout",
+				Usage:   "How long to wait for services to become ready.",
+				Value:   2 * time.Minute,
+				Sources: sourceChain("docker_compose.wait_timeout"),
+			},
+			&cli.BoolFlag{
+				Name:  "keep",
+				Usage: "Leave the compose stack up and print how to reach it.",
+			},
+			&cli.StringFlag{
 				Name:    "docker-compose-file",
 				Usage:   "Path to the docker compose file.",
 				Value:   "./docker-compose.yaml",
@@ -79,71 +95,8 @@ func newRunCommand() *cli.Command {
 			c.Metadata["configuration"] = configuration
 			log.Debugf("configuration set: %+v", configuration)
 
-			dockerCLI, err := command.NewDockerCli()
-			if err != nil {
-				return nil, fmt.Errorf("create docker cli: %w", err)
-			}
-			err = dockerCLI.Initialize(&flags.ClientOptions{})
-			if err != nil {
-				return ctx, fmt.Errorf("initialize docker cli: %w", err)
-			}
-
-			service, err := compose.NewComposeService(dockerCLI)
-			if err != nil {
-				return ctx, fmt.Errorf("create compose service: %w", err)
-			}
-
-			project, err := service.LoadProject(ctx, api.ProjectLoadOptions{
-				ConfigPaths: []string{configuration.ComposeFile},
-				ProjectName: "verity",
-			})
-			if err != nil {
-				return ctx, fmt.Errorf("load compose project: %w", err)
-			}
-
-			err = service.Up(ctx, project, api.UpOptions{
-				Create: api.CreateOptions{
-					Build: &api.BuildOptions{},
-				},
-				Start: api.StartOptions{
-					Wait: true,
-				},
-			})
-			if err != nil {
-				downErr := service.Down(ctx, "verity", api.DownOptions{
-					RemoveOrphans: true,
-					Images:        "local",
-				})
-				if downErr != nil {
-					return ctx, fmt.Errorf("start compose services: %w; additionally, failed to clean up compose services: %v", err, downErr)
-				}
-
-				return ctx, fmt.Errorf("start compose services: %w", err)
-			}
-
-			c.Metadata["docker_compose_service"] = service
-
 			return ctx, nil
 		},
-		After: func(ctx context.Context, c *cli.Command) error {
-			// Before can fail before compose is up; nothing to tear down then.
-			service, ok := c.Metadata["docker_compose_service"].(api.Compose)
-			if !ok {
-				return nil
-			}
-
-			err := service.Down(ctx, "verity", api.DownOptions{
-				RemoveOrphans: true,
-				Images:        "local",
-			})
-			if err != nil {
-				return fmt.Errorf("stop compose services: %w", err)
-			}
-
-			return nil
-		},
-		Action: func(ctx context.Context, c *cli.Command) error {
-			return newTestCommand(c).Run()
-		},
+		Action: runAction,
 	}
 }

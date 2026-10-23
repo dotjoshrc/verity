@@ -43,13 +43,12 @@ func TestNewConfiguration(t *testing.T) {
 		require.Contains(t, parseConfiguration(t).GoTestArgs, "-failfast")
 	})
 
+	t.Run("args after -- pass through, after the flags", func(t *testing.T) {
+		args := parseConfiguration(t, "--go-timeout", "5m", "--", "-run", "TestX").GoTestArgs
+		require.Equal(t, []string{"-timeout=5m", "-run", "TestX"}, args[len(args)-3:])
+	})
+
 	t.Run("fail fast can be disabled", func(t *testing.T) {
 		require.NotContains(t, parseConfiguration(t, "--go-fail-fast=false").GoTestArgs, "-failfast")
 	})
-}
-
-func TestAfterWithoutCompose(t *testing.T) {
-	// Before can fail before compose is up; After must not panic then.
-	after := newRunCommand().After
-	require.NoError(t, after(context.Background(), &cli.Command{Metadata: map[string]any{}}))
 }

@@ -6,6 +6,7 @@ import (
 
 	"github.com/compose-spec/compose-go/v2/loader"
 	"github.com/compose-spec/compose-go/v2/types"
+	"github.com/docker/compose/v5/pkg/api"
 	"github.com/dotjoshrc/verity/internal/core"
 	"github.com/stretchr/testify/require"
 )
@@ -39,7 +40,7 @@ services:
     environment: {POSTGRES_PASSWORD: secret}
 `,
 			want: map[string]core.Endpoint{
-				"db": {Name: "db", Type: "postgres", Host: "db", Port: 5432, User: "postgres", Password: "secret", Database: "postgres"},
+				"db": {Name: "db", Type: "postgres", Port: 5432, User: "postgres", Password: "secret", Database: "postgres"},
 			},
 		},
 		{
@@ -52,7 +53,7 @@ services:
     environment: [POSTGRES_USER=app, POSTGRES_PASSWORD=pw]
 `,
 			want: map[string]core.Endpoint{
-				"db": {Name: "db", Type: "postgres", Host: "db", Port: 5432, User: "app", Password: "pw", Database: "app"},
+				"db": {Name: "db", Type: "postgres", Port: 5432, User: "app", Password: "pw", Database: "app"},
 			},
 		},
 		{
@@ -65,7 +66,7 @@ services:
     environment: [POSTGRES_USER]
 `,
 			want: map[string]core.Endpoint{
-				"db": {Name: "db", Type: "postgres", Host: "db", Port: 5432, User: "postgres", Database: "postgres"},
+				"db": {Name: "db", Type: "postgres", Port: 5432, User: "postgres", Database: "postgres"},
 			},
 		},
 		{
@@ -83,7 +84,7 @@ services:
     environment: {POSTGRES_USER: ignored, POSTGRES_PASSWORD: ignored, POSTGRES_DB: ignored}
 `,
 			want: map[string]core.Endpoint{
-				"db": {Name: "db", Type: "postgres", Host: "db", Port: 6543, User: "admin", Password: "adminpw", Database: "main"},
+				"db": {Name: "db", Type: "postgres", Port: 6543, User: "admin", Password: "adminpw", Database: "main"},
 			},
 		},
 		{
@@ -100,7 +101,7 @@ services:
     labels: {foo: bar}
 `,
 			want: map[string]core.Endpoint{
-				"db": {Name: "db", Type: "postgres", Host: "db", Port: 5432, User: "postgres", Database: "postgres"},
+				"db": {Name: "db", Type: "postgres", Port: 5432, User: "postgres", Database: "postgres"},
 			},
 		},
 		{
@@ -112,6 +113,17 @@ services:
     labels: {verity.type: redis}
 `,
 			wantErr: `service "cache": unknown verity.type "redis"`,
+		},
+		{
+			name: "network_mode that cannot publish ports",
+			compose: `
+services:
+  db:
+    image: postgres
+    labels: {verity.type: postgres}
+    network_mode: host
+`,
+			wantErr: `service "db": network_mode "host" cannot publish a port for verity`,
 		},
 		{
 			name: "bad port",
@@ -144,7 +156,7 @@ services:
     environment: {POSTGRES_PASSWORD_FILE: /run/secrets/pw}
 `,
 			want: map[string]core.Endpoint{
-				"db": {Name: "db", Type: "postgres", Host: "db", Port: 5432, User: "postgres", Password: "pw", Database: "postgres"},
+				"db": {Name: "db", Type: "postgres", Port: 5432, User: "postgres", Password: "pw", Database: "postgres"},
 			},
 		},
 		{
@@ -179,4 +191,47 @@ services:
 			require.Equal(t, d, got)
 		})
 	}
+}
+
+func TestPublishAndFill(t *testing.T) {
+	project := loadFixture(t, `
+services:
+  db:
+    image: postgres
+    labels: {verity.type: postgres}
+    ports: ["5432:5432"]
+  other:
+    image: busybox
+    ports: ["8080"]
+`)
+	d, err := buildDiscovery(project, "run1")
+	require.NoError(t, err)
+
+	publishLoopback(project, d)
+	require.Equal(t, []types.ServicePortConfig{{HostIP: "127.0.0.1", Target: 5432, Protocol: "tcp"}}, project.Services["db"].Ports)
+	require.Len(t, project.Services["other"].Ports, 1) // unlabelled services are untouched
+
+	require.EqualError(t, fillAddresses(d, nil), `service "db": no published port for 5432`)
+
+	require.NoError(t, fillAddresses(d, []api.ContainerSummary{{Service: "db", Publishers: api.PortPublishers{
+		{TargetPort: 5432, PublishedPort: 0}, // an unpublished entry is skipped
+		{TargetPort: 5432, PublishedPort: 32769, URL: "127.0.0.1"},
+	}}}))
+	require.Equal(t, "127.0.0.1", d.Backends["db"].Host)
+	require.Equal(t, 32769, d.Backends["db"].Port)
+}
+
+func TestRequireHealthchecks(t *testing.T) {
+	check := func(extra string) error {
+		project := loadFixture(t, "services:\n  db:\n    image: postgres\n    labels: {verity.type: postgres}\n"+extra)
+		d, err := buildDiscovery(project, "run1")
+		require.NoError(t, err)
+		return requireHealthchecks(project, d)
+	}
+
+	require.NoError(t, check("    healthcheck: {test: [CMD, pg_isready]}\n"))
+	want := `service "db": labelled services need a healthcheck in the compose file`
+	require.EqualError(t, check(""), want)
+	require.EqualError(t, check("    healthcheck: {disable: true}\n"), want)
+	require.EqualError(t, check("    healthcheck: {test: [NONE]}\n"), want)
 }

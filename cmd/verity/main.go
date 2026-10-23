@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/charmbracelet/log"
 	"github.com/urfave/cli/v3"
@@ -14,7 +16,10 @@ func main() {
 
 	app := newApp()
 
-	err := app.Run(context.Background(), os.Args)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	defer stop()
+
+	err := app.Run(ctx, os.Args)
 	if err != nil {
 		log.Fatal(err)
 	}
