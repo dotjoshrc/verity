@@ -14,21 +14,22 @@ func main() {
 	log.SetTimeFormat("15:04:05.000")
 	log.SetPrefix("[verity]")
 
-	app := newApp()
+	args, goArgs := splitDashDash(os.Args)
+	app := newApp(goArgs)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 
-	err := app.Run(ctx, os.Args)
+	err := app.Run(ctx, args)
 	if err != nil {
 		log.Fatal(err)
 	}
 }
 
-func newApp() *cli.Command {
+func newApp(goArgs []string) *cli.Command {
 	app := cli.Command{
 		Commands: []*cli.Command{
-			newRunCommand(),
+			newRunCommand(goArgs),
 		},
 		Flags: []cli.Flag{
 			&cli.BoolFlag{

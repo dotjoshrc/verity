@@ -11,6 +11,7 @@ type Option interface {
 type config struct {
 	uses     []use
 	services []serviceConfig
+	envs     []map[string]string
 }
 
 type use struct {
@@ -43,5 +44,14 @@ func WithService(fn ServiceFunc, opts ...ServiceOption) Option {
 
 	return optionFunc(func(c *config) {
 		c.services = append(c.services, sc)
+	})
+}
+
+// WithEnv adds static config to the service's env, such as a JWT secret. It is
+// merged with the env of the Use resources; setting a var that a resource also
+// sets, or that another WithEnv sets, fails the suite.
+func WithEnv(env map[string]string) Option {
+	return optionFunc(func(c *config) {
+		c.envs = append(c.envs, env)
 	})
 }

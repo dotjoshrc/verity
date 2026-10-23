@@ -440,6 +440,22 @@ var failureCases = []failureCase{
 		events: []string{"release:b", "release:a"}, // already provisioned, so released
 	},
 	{
+		mode: "withenv-conflict-with-resource",
+		run: func(t *testing.T) {
+			setDiscovery(t, map[string]string{"a": "fake"})
+			NewSuite[fakeSuite](t, Use("a"), WithEnv(map[string]string{"FAKE_A": "x"}))
+		},
+		output: []string{"FAKE_A", "verity.WithEnv"},
+		events: []string{"release:a"},
+	},
+	{
+		mode: "withenv-conflict-with-withenv",
+		run: func(t *testing.T) {
+			NewSuite[fakeSuite](t, WithEnv(map[string]string{"K": "1"}), WithEnv(map[string]string{"K": "2"}))
+		},
+		output: []string{"K", "verity.WithEnv"},
+	},
+	{
 		mode: "get-missing",
 		run: func(t *testing.T) {
 			setDiscovery(t, map[string]string{"a": "fake"})

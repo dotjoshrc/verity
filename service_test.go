@@ -5,10 +5,12 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"os"
 	"runtime"
 	"testing"
 	"time"
 
+	"github.com/dotjoshrc/verity/internal/core"
 	"github.com/stretchr/testify/require"
 )
 
@@ -34,6 +36,29 @@ func toyService(health http.HandlerFunc, started func(Env)) ServiceFunc {
 }
 
 func healthy(w http.ResponseWriter, _ *http.Request) {}
+
+func TestWithEnvMergesWithResourceEnvAndNeedsNoUse(t *testing.T) {
+	rec.reset(0)
+
+	var merged, alone Env
+	t.Run("suite", func(t *testing.T) {
+		setDiscovery(t, map[string]string{"a": "fake"})
+
+		NewSuite[fakeSuite](t, Use("a"), WithEnv(map[string]string{"JWT": "x"}), WithEnv(map[string]string{"MORE": "y"}),
+			WithService(toyService(healthy, func(e Env) { merged = e })))
+	})
+	require.Equal(t, "a", merged.Getenv("FAKE_A"))
+	require.Equal(t, "x", merged.Getenv("JWT"))
+	require.Equal(t, "y", merged.Getenv("MORE"))
+
+	t.Run("no use", func(t *testing.T) {
+		t.Setenv(core.DiscoveryEnv, "") // registers the restore; Unsetenv alone is never undone
+		_ = os.Unsetenv(core.DiscoveryEnv)
+		NewSuite[fakeSuite](t, WithEnv(map[string]string{"JWT": "x"}),
+			WithService(toyService(healthy, func(e Env) { alone = e })))
+	})
+	require.Equal(t, "x", alone.Getenv("JWT"))
+}
 
 func TestServiceGetsResourceEnvAndStopsBeforeResourcesRelease(t *testing.T) {
 	rec.reset(0)

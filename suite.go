@@ -222,7 +222,7 @@ func NewSuite[TSuite any](t *testing.T, opts ...Option) *TSuite {
 
 	// Discovery is only required when a suite asks for a backend, so suites
 	// without Use still run under a plain `go test`.
-	var env map[string]string
+	env := map[string]string{}
 	if len(cfg.uses) > 0 {
 		disc, err := core.DecodeDiscovery(os.Getenv(core.DiscoveryEnv))
 		if err != nil {
@@ -230,6 +230,15 @@ func NewSuite[TSuite any](t *testing.T, opts ...Option) *TSuite {
 		}
 
 		env = provisionUses(t, suite, disc, cfg.uses)
+	}
+
+	for _, e := range cfg.envs {
+		for k, v := range e {
+			if _, dup := env[k]; dup {
+				t.Fatalf("env var %s is set by verity.WithEnv and by a verity.Use resource or another verity.WithEnv", k)
+			}
+			env[k] = v
+		}
 	}
 
 	if len(cfg.services) == 1 {

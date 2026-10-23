@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/urfave/cli/v3"
@@ -12,19 +13,22 @@ type Configuration struct {
 	GoTestArgs  []string
 }
 
-func newConfiguration(c *cli.Command) *Configuration {
-	dir := c.String("go-dir")
-
-	cfg := &Configuration{
-		ComposeFile: c.String("docker-compose-file"),
-		GoTestArgs: []string{
-			"test",
-			dir,
-			"-count=1", // Always disable go test cache
-			fmt.Sprintf("-p=%d", c.Int("go-parallel-packages")),
-			fmt.Sprintf("-parallel=%d", c.Int("go-parallel-tests")),
-		},
+// newConfiguration builds the go test command line: the packages given before `--`
+// (or go.dir when there are none), the flags built from config, then goArgs, the
+// args after `--`, unchanged.
+func newConfiguration(c *cli.Command, goArgs []string) *Configuration {
+	packages := c.Args().Slice()
+	if len(packages) == 0 {
+		packages = []string{c.String("go-dir")}
 	}
+
+	cfg := &Configuration{ComposeFile: c.String("docker-compose-file"), GoTestArgs: append([]string{"test"}, packages...)}
+
+	cfg.GoTestArgs = append(cfg.GoTestArgs,
+		"-count=1", // Always disable go test cache
+		fmt.Sprintf("-p=%d", c.Int("go-parallel-packages")),
+		fmt.Sprintf("-parallel=%d", c.Int("go-parallel-tests")),
+	)
 
 	if c.Bool("go-fail-fast") {
 		cfg.GoTestArgs = append(cfg.GoTestArgs, "-failfast")
@@ -47,8 +51,18 @@ func newConfiguration(c *cli.Command) *Configuration {
 		cfg.GoTestArgs = append(cfg.GoTestArgs, "-timeout="+timeout)
 	}
 
-	// Everything after `--` goes to go test unchanged.
-	cfg.GoTestArgs = append(cfg.GoTestArgs, c.Args().Slice()...)
+	cfg.GoTestArgs = append(cfg.GoTestArgs, goArgs...)
 
 	return cfg
+}
+
+// splitDashDash splits args at the first "--": before it are verity's flags and
+// packages, after it go test's args. It runs before cli, which drops the "--" and
+// with it the boundary.
+func splitDashDash(args []string) (before, after []string) {
+	if i := slices.Index(args, "--"); i >= 0 {
+		return args[:i], args[i+1:]
+	}
+
+	return args, nil
 }

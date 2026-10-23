@@ -19,16 +19,18 @@ func parseConfiguration(t *testing.T, args ...string) *Configuration {
 		require.NoError(t, os.Unsetenv("VERITY_GO_"+key))
 	}
 
+	before, goArgs := splitDashDash(args)
+
 	var cfg *Configuration
 	cmd := &cli.Command{
 		Name:  "run",
-		Flags: newRunCommand().Flags,
+		Flags: newRunCommand(nil).Flags,
 		Action: func(_ context.Context, c *cli.Command) error {
-			cfg = newConfiguration(c)
+			cfg = newConfiguration(c, goArgs)
 			return nil
 		},
 	}
-	require.NoError(t, cmd.Run(context.Background(), append([]string{"run"}, args...)))
+	require.NoError(t, cmd.Run(context.Background(), append([]string{"run"}, before...)))
 
 	return cfg
 }
@@ -48,7 +50,35 @@ func TestNewConfiguration(t *testing.T) {
 		require.Equal(t, []string{"-timeout=5m", "-run", "TestX"}, args[len(args)-3:])
 	})
 
+	t.Run("go-dir is the default package", func(t *testing.T) {
+		require.Equal(t, "./...", parseConfiguration(t).GoTestArgs[1])
+		require.Equal(t, "./x/...", parseConfiguration(t, "--go-dir", "./x/...", "--", "-race", "-run", "TestX/sub").GoTestArgs[1])
+	})
+
+	t.Run("packages before -- replace go-dir", func(t *testing.T) {
+		args := parseConfiguration(t, "--go-dir", "./x/...", "./pkg/a", "./pkg/b", "--", "-race").GoTestArgs
+		require.Equal(t, []string{"test", "./pkg/a", "./pkg/b"}, args[:3])
+		require.NotContains(t, args, "./x/...")
+		require.Equal(t, "-race", args[len(args)-1])
+	})
+
+	t.Run("args after -- are never packages", func(t *testing.T) {
+		args := parseConfiguration(t, "--go-dir", "./x/...", "--", "-coverprofile", "./c.out", "./data").GoTestArgs
+		require.Equal(t, "./x/...", args[1])
+		require.Equal(t, []string{"-coverprofile", "./c.out", "./data"}, args[len(args)-3:])
+	})
+
 	t.Run("fail fast can be disabled", func(t *testing.T) {
 		require.NotContains(t, parseConfiguration(t, "--go-fail-fast=false").GoTestArgs, "-failfast")
 	})
+}
+
+func TestSplitDashDash(t *testing.T) {
+	before, after := splitDashDash([]string{"verity", "run", "./a", "--", "-run", "--", "x"})
+	require.Equal(t, []string{"verity", "run", "./a"}, before)
+	require.Equal(t, []string{"-run", "--", "x"}, after, "only the first -- splits")
+
+	before, after = splitDashDash([]string{"verity", "run"})
+	require.Equal(t, []string{"verity", "run"}, before)
+	require.Empty(t, after)
 }

@@ -29,7 +29,7 @@ type Env struct {
 	addr string
 }
 
-// Getenv returns the merged env of every resource from verity.Use. It does not
+// Getenv returns the merged env of every resource from verity.Use and verity.WithEnv. It does not
 // fall back to the process environment, which holds the discovery credentials.
 func (e Env) Getenv(key string) string { return e.env[key] }
 

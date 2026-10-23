@@ -21,7 +21,7 @@ func sourceChain(key string) cli.ValueSourceChain {
 	return cli.NewValueSourceChain(sources...)
 }
 
-func newRunCommand() *cli.Command {
+func newRunCommand(goArgs []string) *cli.Command {
 	return &cli.Command{
 		Name: "run",
 		Flags: []cli.Flag{
@@ -91,7 +91,7 @@ func newRunCommand() *cli.Command {
 				log.SetLevel(log.DebugLevel)
 			}
 
-			configuration := newConfiguration(c)
+			configuration := newConfiguration(c, goArgs)
 			c.Metadata["configuration"] = configuration
 			log.Debugf("configuration set: %+v", configuration)
 

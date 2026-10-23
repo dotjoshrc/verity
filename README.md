@@ -106,13 +106,14 @@ mise use go:github.com/dotjoshrc/verity/cmd/verity@latest
 ### Usage
 
 ```sh
-verity run [flags] [-- go test args]
+verity run [flags] [packages...] [-- go test args]
 ```
 
 `verity run` reads `./docker-compose.yaml`, brings it up under a per-run project
 name, waits for the services to be healthy, runs `go test ./... -count=1` with
-`VERITY_DISCOVERY` set, then tears the stack down. Anything after `--` goes to
-`go test` unchanged, and the exit code is `go test`'s.
+`VERITY_DISCOVERY` set, then tears the stack down. Packages go before `--`
+(default: `--go-dir`), and anything after `--` goes to `go test` unchanged, for
+example `verity run ./pkg/a -- -race -run TestX`. The exit code is `go test`'s.
 
 | Flag                          | Default                | Meaning                                    |
 | ----------------------------- | ---------------------- | ------------------------------------------ |
@@ -181,6 +182,9 @@ func TestMySuite(t *testing.T) {
     verity.RunSuite(suite)
 }
 ```
+
+`verity.WithEnv(map[string]string{...})` adds static config (a JWT secret, say) to
+the service's env; it fails the suite if a resource sets the same variable.
 
 `WithService` waits for `GET /healthz` to return 200; use `verity.ReadyPath` to
 change the path. `postgres.EnvName` sets the env var that carries the database
