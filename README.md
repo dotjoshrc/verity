@@ -1,6 +1,14 @@
-# Verity
-
-_A Go framework for integration tests against real, live services._
+<div align="center">
+  <img src="docs/verity-judge-ready.svg" alt="Verity" width="150">
+  <h1>Verity</h1>
+  <p>
+    <i>A Go framework for integration tests against real, live services.</i>
+  </p>
+  <p>
+    <a href="https://pkg.go.dev/github.com/dotjoshrc/verity"><img src="https://pkg.go.dev/badge/github.com/dotjoshrc/verity.svg" alt="Go Reference"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/github/license/dotjoshrc/verity" alt="License"></a>
+  </p>
+</div>
 
 ## What is Verity?
 
@@ -109,26 +117,37 @@ mise use go:github.com/dotjoshrc/verity/cmd/verity@latest
 verity run [flags] [packages...] [-- go test args]
 ```
 
-`verity run` reads `./docker-compose.yaml`, brings it up under a per-run project
-name, waits for the services to be healthy, runs `go test ./... -count=1` with
-`VERITY_DISCOVERY` set, then tears the stack down. Packages go before `--`
-(default: `--go-dir`), and anything after `--` goes to `go test` unchanged, for
-example `verity run ./pkg/a -- -race -run TestX`. The exit code is `go test`'s.
+`verity run`:
 
-| Flag                          | Default                | Meaning                                    |
-| ----------------------------- | ---------------------- | ------------------------------------------ |
-| `--docker-compose-file`       | `./docker-compose.yaml` | Compose file                               |
-| `--docker-compose-wait-timeout` | `2m`                 | How long to wait for services to be ready  |
-| `--go-dir`                    | `./...`                | Packages to test                           |
-| `--go-parallel-packages`      | `2`                    | `go test -p`                               |
-| `--go-parallel-tests`         | `1`                    | `go test -parallel`                        |
-| `--go-tags`                   | none                   | Build tags                                 |
-| `--go-run`                    | none                   | `go test -run`                             |
-| `--go-timeout`                | Go's default (10m)     | `go test -timeout`                         |
-| `--go-verbose`                | off                    | `go test -v`                               |
-| `--go-fail-fast`              | on                     | `go test -failfast`                        |
-| `--keep`                      | off                    | Leave the stack up and print how to reach it |
-| `--debug` (before `run`)      | off                    | Debug logging                              |
+1. reads `./docker-compose.yaml` and starts it under a per-run project name,
+2. waits for the services to be healthy,
+3. runs `go test -count=1` with `VERITY_DISCOVERY` set, and
+4. tears the stack down and exits with `go test`'s exit code.
+
+What it tests depends on where you put your arguments:
+
+- **Before `--`:** verity's own flags and the packages to test. With no packages,
+  it tests `--go-dir` (default `./...`).
+- **After `--`:** passed to `go test` unchanged.
+
+```sh
+verity run ./pkg/a -- -race -run TestX   # tests ./pkg/a with go test -race -run TestX
+```
+
+| Flag                            | Default                 | Meaning                                      |
+| ------------------------------- | ----------------------- | -------------------------------------------- |
+| `--docker-compose-file`         | `./docker-compose.yaml` | Compose file                                 |
+| `--docker-compose-wait-timeout` | `2m`                    | How long to wait for services to be ready    |
+| `--go-dir`                      | `./...`                 | Packages to test                             |
+| `--go-parallel-packages`        | `2`                     | `go test -p`                                 |
+| `--go-parallel-tests`           | `1`                     | `go test -parallel`                          |
+| `--go-tags`                     | none                    | Build tags                                   |
+| `--go-run`                      | none                    | `go test -run`                               |
+| `--go-timeout`                  | Go's default (10m)      | `go test -timeout`                           |
+| `--go-verbose`                  | off                     | `go test -v`                                 |
+| `--go-fail-fast`                | on                      | `go test -failfast`                          |
+| `--keep`                        | off                     | Leave the stack up and print how to reach it |
+| `--debug` (before `run`)        | off                     | Debug logging                                |
 
 Flags can also come from `VERITY_<FLAG>` env vars (dots become underscores, e.g.
 `VERITY_GO_DIR`) or a `.verity.yaml` (also `.yml`, `verity.yaml`, `verity.yml`)
@@ -137,11 +156,11 @@ in the working directory, with keys like `go.dir`, `go.parallel_packages` and
 
 #### Compose labels
 
-| Label                                            | Meaning                                                       |
-| ------------------------------------------------ | ------------------------------------------------------------- |
-| `verity.type`                                    | Backend type. Only `postgres` today. Required to be managed.   |
-| `verity.port`                                    | Internal port, if not the type's default (5432 for Postgres).  |
-| `verity.user`, `verity.password`, `verity.database` | Override the admin credentials read from the service's env. |
+| Label                                               | Meaning                                                       |
+| --------------------------------------------------- | ------------------------------------------------------------- |
+| `verity.type`                                       | Backend type. Only `postgres` today. Required to be managed.  |
+| `verity.port`                                       | Internal port, if not the type's default (5432 for Postgres). |
+| `verity.user`, `verity.password`, `verity.database` | Override the admin credentials read from the service's env.   |
 
 A one-shot service (for example, a migration job) can be labelled
 `verity.wait: "true"`. Verity waits for it to exit 0 before running tests, and
@@ -190,3 +209,7 @@ the service's env; it fails the suite if a resource sets the same variable.
 change the path. `postgres.EnvName` sets the env var that carries the database
 URL (default `DATABASE_URL`). Everything is released when the test ends, the
 service first and then the resources.
+
+---
+
+Logo adapted from the Go Gopher by Renee French, licensed [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/).
