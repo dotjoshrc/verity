@@ -229,6 +229,39 @@ change the path. `postgres.EnvName` sets the env var that carries the database
 URL (default `DATABASE_URL`). Everything is released when the test ends, the
 service first and then the resources.
 
+### Callbacks from containers
+
+Your service runs on the host, while backends run in Docker containers. If a
+backend needs to call your service—for example, to deliver a webhook—give it a
+URL built from `env.Addr()`:
+
+```go
+callbackURL := "http://" + env.Addr() + "/webhook"
+```
+
+`env.Addr()` returns `host.docker.internal:<port>`, using the port of
+`env.Listener()`. Use this address for requests **from containers**; `localhost`
+inside a container points to that container, so it cannot reach your host service.
+
+`verity run` sets up the hostname automatically by adding this entry to your
+Compose services before starting them:
+
+```yaml
+extra_hosts:
+  - "host.docker.internal:host-gateway"
+```
+
+You do not need to add it yourself. If your Compose file already defines
+`host.docker.internal`, Verity keeps your setting.
+
+Services with `network_mode: service:...` or `container:...` share another
+container's network and cannot have their own `extra_hosts`. Verity skips them
+and adds the mapping to the network-owning service if it is in the same Compose
+project. For an external container, configure the mapping on that container.
+
+Callbacks have been verified on Linux. Docker Desktop compatibility remains
+unverified.
+
 ---
 
 Logo adapted from the Go Gopher by Renee French, licensed [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/).
