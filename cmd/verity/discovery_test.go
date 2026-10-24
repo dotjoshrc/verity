@@ -44,6 +44,23 @@ services:
 			},
 		},
 		{
+			name: "redis: default user, password from the label only",
+			compose: `
+services:
+  cache:
+    image: redis
+    labels: {verity.type: redis, verity.password: admin}
+    environment: {POSTGRES_PASSWORD: ignored}
+  open:
+    image: redis
+    labels: {verity.type: redis, verity.port: "6380"}
+`,
+			want: map[string]core.Endpoint{
+				"cache": {Name: "cache", Type: "redis", Port: 6379, User: "default", Password: "admin"},
+				"open":  {Name: "open", Type: "redis", Port: 6380, User: "default"},
+			},
+		},
+		{
 			name: "env list form; database defaults to user",
 			compose: `
 services:
@@ -109,10 +126,10 @@ services:
 			compose: `
 services:
   cache:
-    image: redis
-    labels: {verity.type: redis}
+    image: memcached
+    labels: {verity.type: memcached}
 `,
-			wantErr: `service "cache": unknown verity.type "redis"`,
+			wantErr: `service "cache": unknown verity.type "memcached"`,
 		},
 		{
 			name: "network_mode that cannot publish ports",
@@ -234,4 +251,20 @@ func TestRequireHealthchecks(t *testing.T) {
 	require.EqualError(t, check(""), want)
 	require.EqualError(t, check("    healthcheck: {disable: true}\n"), want)
 	require.EqualError(t, check("    healthcheck: {test: [NONE]}\n"), want)
+}
+
+func TestDiscoveryOptions(t *testing.T) {
+	project := loadFixture(t, `
+services:
+  db:
+    image: postgres
+    labels:
+      verity.type: postgres
+      verity.opt.setting: value
+      verity.unknown: ignored
+`)
+	d, err := buildDiscovery(project, "run1")
+	require.NoError(t, err)
+	require.Equal(t, project.Name, d.Project)
+	require.Equal(t, map[string]string{"setting": "value"}, d.Backends["db"].Extra)
 }

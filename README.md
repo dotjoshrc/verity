@@ -158,8 +158,8 @@ in the working directory, with keys like `go.dir`, `go.parallel_packages` and
 
 | Label                                               | Meaning                                                       |
 | --------------------------------------------------- | ------------------------------------------------------------- |
-| `verity.type`                                       | Backend type. Only `postgres` today. Required to be managed.  |
-| `verity.port`                                       | Internal port, if not the type's default (5432 for Postgres). |
+| `verity.type`                                       | Backend type: `postgres` or `redis`. Required to be managed.  |
+| `verity.port`                                       | Internal port, if not the type's default (5432, 6379).        |
 | `verity.user`, `verity.password`, `verity.database` | Override the admin credentials read from the service's env.   |
 
 A one-shot service (for example, a migration job) can be labelled
@@ -168,6 +168,25 @@ fails the run if it exits otherwise.
 
 Backends need a healthcheck, and `*_FILE` env vars (e.g. `POSTGRES_PASSWORD_FILE`)
 are not supported; use the labels instead.
+
+#### Redis
+
+Label the service `verity.type: redis`. The official image takes its password on
+the command line (`--requirepass`), not from env, so give it to verity with
+`verity.password`. Each suite gets an ACL user that can use only keys and channels
+that start with its prefix, so the server must be Redis 7 or later.
+
+```go
+suite := verity.NewSuite[MySuite](t, verity.Use("cache"), verity.WithService(...))
+// REDIS_URL and REDIS_KEY_PREFIX reach the service through env.Getenv.
+cache := verity.Get[*redis.Keyspace](suite, "cache") // cache.Client() is a go-redis client
+```
+
+The service must put `REDIS_KEY_PREFIX` on every key and channel it uses; anything
+else is refused. Isolation is moderate: values and pub/sub are separate, and
+commands that reach across suites (`FLUSHALL`, `KEYS`, `CONFIG`, `SELECT`, ...) are
+denied, but `SCAN` still lists other suites' key names. `redis.EnvName` and
+`redis.PrefixEnvName` rename the two env vars.
 
 ## Module
 

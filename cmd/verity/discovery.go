@@ -18,7 +18,7 @@ import (
 type backendType struct {
 	port int
 	// resolve returns the admin credentials from the service's standard env.
-	resolve func(env func(string) string) (user, password, database string)
+	resolve func(env func(string) string) core.Endpoint
 	// fileVars maps env vars we do not read to the label that replaces them.
 	fileVars map[string]string
 }
@@ -31,18 +31,24 @@ var backendTypes = map[string]backendType{
 			"POSTGRES_PASSWORD_FILE": "verity.password",
 			"POSTGRES_DB_FILE":       "verity.database",
 		},
-		resolve: func(env func(string) string) (string, string, string) {
+		resolve: func(env func(string) string) core.Endpoint {
 			user := cmp.Or(env("POSTGRES_USER"), "postgres")
 			// The image's POSTGRES_DB defaults to the user, not "postgres".
-			return user, env("POSTGRES_PASSWORD"), cmp.Or(env("POSTGRES_DB"), user)
+			return core.Endpoint{User: user, Password: env("POSTGRES_PASSWORD"), Database: cmp.Or(env("POSTGRES_DB"), user)}
 		},
+	},
+	"redis": {
+		port: 6379,
+		// The official image takes --requirepass on its command line, not from env,
+		// so a password can only come from the verity.password label.
+		resolve: func(func(string) string) core.Endpoint { return core.Endpoint{User: "default"} },
 	},
 }
 
 // buildDiscovery maps every service labelled verity.type to an endpoint. Host is
 // empty and Port is the service's internal port until fillAddresses runs.
 func buildDiscovery(project *types.Project, runID string) (*core.Discovery, error) {
-	d := &core.Discovery{Version: core.DiscoveryVersion, RunID: runID, Backends: map[string]core.Endpoint{}}
+	d := &core.Discovery{Version: core.DiscoveryVersion, RunID: runID, Project: project.Name, Backends: map[string]core.Endpoint{}}
 
 	for _, name := range slices.Sorted(maps.Keys(project.Services)) { // sorted so errors are deterministic
 		svc := project.Services[name]
@@ -84,16 +90,20 @@ func buildDiscovery(project *types.Project, runID string) (*core.Discovery, erro
 		}
 
 		// Labels override only when non-empty.
-		user, password, database := bt.resolve(env)
-
-		d.Backends[name] = core.Endpoint{
-			Name:     name,
-			Type:     typ,
-			Port:     port,
-			User:     cmp.Or(svc.Labels["verity.user"], user),
-			Password: cmp.Or(svc.Labels["verity.password"], password),
-			Database: cmp.Or(svc.Labels["verity.database"], database),
+		e := bt.resolve(env)
+		e.Name, e.Type, e.Port = name, typ, port
+		e.User = cmp.Or(svc.Labels["verity.user"], e.User)
+		e.Password = cmp.Or(svc.Labels["verity.password"], e.Password)
+		e.Database = cmp.Or(svc.Labels["verity.database"], e.Database)
+		for label, value := range svc.Labels {
+			if key, ok := strings.CutPrefix(label, "verity.opt."); ok && key != "" {
+				if e.Extra == nil {
+					e.Extra = map[string]string{}
+				}
+				e.Extra[key] = value
+			}
 		}
+		d.Backends[name] = e
 	}
 
 	return d, nil

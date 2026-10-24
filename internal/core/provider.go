@@ -8,15 +8,16 @@ import (
 	"sync"
 )
 
-// Endpoint is a discovered backend, addressed from inside the compose network.
+// Endpoint is a discovered backend, addressed from the host.
 type Endpoint struct {
-	Name     string `json:"-"` // the compose service name; the key in Discovery.Backends
-	Type     string `json:"type"`
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	User     string `json:"user"`
-	Password string `json:"password"`
-	Database string `json:"database"`
+	Extra    map[string]string `json:"extra,omitempty"`
+	Name     string            `json:"-"` // the compose service name; the key in Discovery.Backends
+	Type     string            `json:"type"`
+	Host     string            `json:"host"`
+	Port     int               `json:"port"`
+	User     string            `json:"user"`
+	Password string            `json:"password"`
+	Database string            `json:"database"`
 }
 
 // Request asks a Provider for an isolated slice of a backend.

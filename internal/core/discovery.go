@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-// DiscoveryEnv is the env var the CLI sets in each test container.
+// DiscoveryEnv is the env var the CLI sets in each test process.
 const DiscoveryEnv = "VERITY_DISCOVERY"
 
 // DiscoveryVersion is the only discovery protocol version this package reads.
@@ -14,6 +14,7 @@ const DiscoveryVersion = 1
 
 // Discovery tells a test process which backends exist and how to reach them.
 type Discovery struct {
+	Project  string              `json:"project,omitempty"`
 	Version  int                 `json:"version"`
 	RunID    string              `json:"run_id"`
 	Backends map[string]Endpoint `json:"backends"`
