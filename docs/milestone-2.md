@@ -1,7 +1,8 @@
 # Verity milestone 2: more backends and a safer run
 
-Status: in progress, 2026-10-24. Shared discovery prerequisite, host-gateway injection, and Redis provider
-implemented; remaining steps and spikes are pending. Companion to
+Status: in progress, 2026-10-24. Shared discovery, host-gateway injection, Redis,
+automatic failure logs, and `verity down` are implemented. The mock-server provider is deferred
+for later discussion; remaining steps and spikes are pending. Companion to
 `DESIGN.md`, which stays the source of truth for milestone 1 and the overall
 design. Rows marked "default" are proposals that nobody has confirmed.
 
@@ -225,7 +226,16 @@ works on Linux with step 2; `Release` leaves no stubs.
 
 ## Step 5: Failure-log capture
 
-Gated by spike 6.
+Implemented (2026-10-24). Automatic capture for failed `RunSuite` methods uses
+200 lines per container, a 64 KiB total cap, and a 10-second timeout. The README
+documents usage, shared-stack noise, and requirements. Setup and suite teardown
+failures are outside this capture window.
+
+Spike 6 confirmed on Linux with Compose v5.5.0: `logs -p <project>` works
+from a directory with no Compose file. A Docker-gated test runs a deliberately
+failing suite method and confirms its backend log marker appears. Subprocess
+tests cover passing methods, absent Docker, absent project, and command errors.
+Docker Desktop remains unverified.
 
 - In `RunSuite`, for each `Test*` method, record the start time and register a
   `t.Cleanup` that, when `t.Failed()`, runs `docker compose -p <project> logs
@@ -239,6 +249,18 @@ passing test shows none; with `docker` removed from PATH the test still reports
 its own failure and one line saying capture was skipped.
 
 ## Step 6: Hard-kill cleanup
+
+`verity down` implemented (2026-10-24): no arguments lists projects and exits
+non-zero without removal; a project name or `--all` removes matching stacks,
+including stopped containers and resource-only projects. Identification uses the
+Compose project label with a `verity-` prefix. The README documents destructive
+volume cleanup and the fact that `--all` includes active/kept runs.
+
+Watchdog/reaper evaluation is deferred for separate discussion. Cleanup is
+explicit for now. The Linux Docker acceptance test passes: `SIGKILL` a running
+CLI, list without removal, remove its named project, then remove network/volume-only
+leftovers with `--all` while preserving an unrelated project. Docker Desktop
+remains unverified.
 
 Gated by spike 5.
 

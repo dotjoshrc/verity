@@ -154,6 +154,30 @@ Flags can also come from `VERITY_<FLAG>` env vars (dots become underscores, e.g.
 in the working directory, with keys like `go.dir`, `go.parallel_packages` and
 `docker_compose.file`.
 
+#### Clean up a leftover stack
+
+If `verity run` is killed before it can clean up, use `verity down` to find and
+remove the stack:
+
+```sh
+verity down                 # list Verity projects; remove nothing, exit non-zero
+verity down verity-abc123    # remove the named project
+verity down --all           # remove every Verity project on the current daemon
+```
+
+Removal deletes the project's containers, networks, and volumes, including test
+data. It works without the original Compose file and includes stopped stacks and
+projects with only networks or volumes left. External networks and volumes are
+preserved.
+
+Verity identifies these projects by their Compose project label starting with
+`verity-`. Reserve that prefix for disposable test stacks. `--all` also removes
+active Verity runs and stacks retained with `--keep`; use a project name when you
+want to remove just one. Other Compose projects are left alone.
+
+Cleanup is explicit: there is no watchdog or reaper. Run the command against the
+same Docker daemon used by `verity run`.
+
 #### Compose labels
 
 | Label                                               | Meaning                                                       |
@@ -228,6 +252,23 @@ the service's env; it fails the suite if a resource sets the same variable.
 change the path. `postgres.EnvName` sets the env var that carries the database
 URL (default `DATABASE_URL`). Everything is released when the test ends, the
 service first and then the resources.
+
+### Backend logs on test failure
+
+When a `Test*` method run by `verity.RunSuite` fails, Verity automatically adds
+recent Compose logs to the test output. The logs cover the time since that method
+started and are collected after its cleanup functions, before the suite's
+resources are released. Passing methods produce no backend logs.
+
+Capture includes the whole Compose stack, so logs from parallel suites can
+appear together. Output is limited to the last 200 lines per container and
+64 KiB total. Capture stops after 10 seconds; missing Docker, an unavailable
+daemon, or an older CLI without a project name produces a diagnostic without
+changing the test result.
+
+The test process needs `docker` and the Compose plugin on `PATH`, with access to
+the same Docker daemon used by `verity run`. Capture applies to suite test
+methods; setup and suite teardown failures do not trigger it.
 
 ### Callbacks from containers
 

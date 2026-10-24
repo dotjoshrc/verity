@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 	"uuid"
 
 	"github.com/dotjoshrc/verity/internal/core"
@@ -121,7 +122,7 @@ func (s *Suite) handle(name string) (any, bool) {
 // before running the tests. If the suite implements AfterSuite, it will call
 // the AfterSuite method after running the tests, through t.Cleanup so that it
 // also runs when a test fails fatally, and before the suite's resources are
-// released.
+// released. Failed test methods include best-effort Compose logs in their output.
 func RunSuite(suite TestSuite) {
 	if beforeSuite, ok := suite.(BeforeSuite); ok {
 		err := beforeSuite.BeforeSuite(suite.T())
@@ -153,6 +154,8 @@ func RunSuite(suite TestSuite) {
 
 		if strings.HasPrefix(name, "Test") {
 			suite.T().Run(name, func(t *testing.T) {
+				start := time.Now()
+				t.Cleanup(func() { captureFailureLogs(t, start) })
 				method.Func.Call([]reflect.Value{reflect.ValueOf(suite), reflect.ValueOf(t)})
 			})
 		}

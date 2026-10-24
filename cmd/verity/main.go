@@ -30,6 +30,7 @@ func newApp(goArgs []string) *cli.Command {
 	app := cli.Command{
 		Commands: []*cli.Command{
 			newRunCommand(goArgs),
+			newDownCommand(goArgs),
 		},
 		Flags: []cli.Flag{
 			&cli.BoolFlag{

@@ -1,10 +1,12 @@
 package fixture
 
 import (
+	"fmt"
 	"net"
 	"os"
 	"os/signal"
 	"strconv"
+	"syscall"
 	"testing"
 	"time"
 
@@ -35,6 +37,9 @@ func TestFails(t *testing.T) {
 }
 
 func TestSlow(t *testing.T) {
+	if os.Getenv("FIXTURE_REPORT_PGID") != "" {
+		fmt.Printf("fixture process group: %d\n", syscall.Getpgrp())
+	}
 	if os.Getenv("FIXTURE_IGNORE_SIGINT") != "" {
 		signal.Ignore(os.Interrupt)
 	}
