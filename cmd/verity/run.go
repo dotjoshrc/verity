@@ -54,6 +54,7 @@ func runAction(ctx context.Context, c *cli.Command) (err error) {
 		return err
 	}
 	publishLoopback(project, discovery)
+	addHostGateway(project)
 
 	// Registered before Up so a partial Up is cleaned too. ctx is cancelled by
 	// Ctrl-C, which would make Down fail, so it gets its own.

@@ -268,3 +268,37 @@ services:
 	require.Equal(t, project.Name, d.Project)
 	require.Equal(t, map[string]string{"setting": "value"}, d.Backends["db"].Extra)
 }
+
+func TestAddHostGateway(t *testing.T) {
+	project := loadFixture(t, `
+services:
+  added:
+    image: busybox
+  kept:
+    image: busybox
+    extra_hosts: ["host.docker.internal:host-gateway"]
+  overridden:
+    image: busybox
+    extra_hosts:
+      host.docker.internal: "192.0.2.1"
+      other: "192.0.2.2"
+  shared:
+    image: busybox
+    network_mode: service:added
+  external:
+    image: busybox
+    network_mode: container:existing
+  unrelated:
+    image: busybox
+    extra_hosts: ["other:192.0.2.2"]
+`)
+	addHostGateway(project)
+	addHostGateway(project) // Reapplying does not duplicate entries.
+	require.Empty(t, project.Services["shared"].ExtraHosts)
+	require.Empty(t, project.Services["external"].ExtraHosts)
+	for _, name := range []string{"added", "kept", "unrelated"} {
+		require.Equal(t, []string{"host-gateway"}, project.Services[name].ExtraHosts["host.docker.internal"])
+	}
+	require.Equal(t, types.HostsList{"host.docker.internal": {"192.0.2.1"}, "other": {"192.0.2.2"}}, project.Services["overridden"].ExtraHosts)
+	require.Equal(t, []string{"192.0.2.2"}, project.Services["unrelated"].ExtraHosts["other"])
+}

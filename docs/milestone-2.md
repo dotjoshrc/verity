@@ -1,6 +1,6 @@
 # Verity milestone 2: more backends and a safer run
 
-Status: in progress, 2026-10-24. Shared discovery prerequisite and Redis provider
+Status: in progress, 2026-10-24. Shared discovery prerequisite, host-gateway injection, and Redis provider
 implemented; remaining steps and spikes are pending. Companion to
 `DESIGN.md`, which stays the source of truth for milestone 1 and the overall
 design. Rows marked "default" are proposals that nobody has confirmed.
@@ -164,6 +164,12 @@ decodes; JSON with them decodes in a reader that ignores them). Postgres
 discovery output is unchanged for an existing fixture.
 
 ## Step 2: `host-gateway` injection
+
+Implemented (2026-10-24). Unit tests cover additions, existing mappings, overrides,
+and repeat application. The Docker-gated callback test passes on Linux; Docker
+Desktop compatibility remains unverified. Services sharing another container’s
+network namespace are skipped because Docker rejects `extra_hosts` there; the
+network-owning service receives the mapping.
 
 - In the CLI, before `Up`, add `host.docker.internal:host-gateway` to the
   `extra_hosts` of every service that does not define that host.

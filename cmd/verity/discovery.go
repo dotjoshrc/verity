@@ -119,6 +119,24 @@ func publishLoopback(project *types.Project, d *core.Discovery) {
 	}
 }
 
+// addHostGateway lets containers call services running on the host.
+func addHostGateway(project *types.Project) {
+	for name, svc := range project.Services {
+		// Shared network namespaces reject extra_hosts; the owning container supplies DNS.
+		if strings.HasPrefix(svc.NetworkMode, "service:") || strings.HasPrefix(svc.NetworkMode, "container:") {
+			continue
+		}
+		if _, exists := svc.ExtraHosts["host.docker.internal"]; exists {
+			continue
+		}
+		if svc.ExtraHosts == nil {
+			svc.ExtraHosts = types.HostsList{}
+		}
+		svc.ExtraHosts["host.docker.internal"] = []string{"host-gateway"}
+		project.Services[name] = svc
+	}
+}
+
 // fillAddresses points every endpoint at the host port compose assigned.
 func fillAddresses(d *core.Discovery, containers []api.ContainerSummary) error {
 	for name, e := range d.Backends {
