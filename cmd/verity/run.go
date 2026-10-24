@@ -56,6 +56,16 @@ func runAction(ctx context.Context, c *cli.Command) (err error) {
 	publishLoopback(project, discovery)
 	addHostGateway(project)
 
+	var reaper *reaper
+	cleaned := false
+	if !c.Bool("keep") {
+		reaper, err = startReaper(ctx, dockerCLI, projectName)
+		if err != nil {
+			return fmt.Errorf("start cleanup reaper: %w", err)
+		}
+		defer func() { reaper.close(cleaned) }()
+	}
+
 	// Registered before Up so a partial Up is cleaned too. ctx is cancelled by
 	// Ctrl-C, which would make Down fail, so it gets its own.
 	defer func() {
@@ -67,7 +77,9 @@ func runAction(ctx context.Context, c *cli.Command) (err error) {
 		}
 		downCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
 		defer cancel()
-		if downErr := service.Down(downCtx, projectName, api.DownOptions{RemoveOrphans: true, Images: "local", Volumes: true}); downErr != nil {
+		downErr := service.Down(downCtx, projectName, api.DownOptions{RemoveOrphans: true, Images: "local", Volumes: true})
+		cleaned = downErr == nil
+		if downErr != nil {
 			// Keep the run's own error: it may carry the test exit code.
 			log.Errorf("stop compose services: %v", downErr)
 			if err == nil {

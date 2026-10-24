@@ -175,8 +175,20 @@ Verity identifies these projects by their Compose project label starting with
 active Verity runs and stacks retained with `--keep`; use a project name when you
 want to remove just one. Other Compose projects are left alone.
 
-Cleanup is explicit: there is no watchdog or reaper. Run the command against the
-same Docker daemon used by `verity run`.
+`verity run` normally starts a Ryuk reaper container before the stack. If the CLI
+is killed, Ryuk removes that run's containers, networks, and volumes after a
+10-second grace period, then exits itself. Normal runs still use Compose teardown
+and remove the reaper immediately afterward. `--keep` skips Ryuk entirely.
+
+Ryuk uses a pinned `testcontainers/ryuk:0.14.0` image (pulled when missing) and
+mounts the Docker socket to perform cleanup. If it cannot start and acknowledge
+the run, Verity fails before starting the stack. Local Unix Docker sockets are
+supported, with Docker Desktop's daemon-side socket handled separately; Desktop
+and rootless behavior remain unverified on real hardware.
+
+`verity down` remains a fallback if the reaper fails. Run it against the same
+Docker daemon used by `verity run`. Ryuk does not terminate orphaned Go test
+processes on the host.
 
 #### Compose labels
 

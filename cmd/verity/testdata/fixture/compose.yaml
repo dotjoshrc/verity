@@ -3,6 +3,7 @@ services:
     image: postgres:17-alpine
     labels: { verity.type: postgres }
     environment: { POSTGRES_PASSWORD: postgres }
+    volumes: [data:/verity-data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres"]
       interval: 1s
@@ -13,3 +14,6 @@ services:
     depends_on: { db: { condition: service_healthy } }
     environment: { PGPASSWORD: postgres }
     command: ["sh", "-c", "psql -h db -U postgres -c 'create table t(i int)'"]
+
+volumes:
+  data: {}

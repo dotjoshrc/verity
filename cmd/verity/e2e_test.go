@@ -130,6 +130,25 @@ func TestEndToEnd(t *testing.T) {
 		require.Empty(t, leftovers(t, volumesBefore))
 	})
 
+	t.Run("keep skips Ryuk and retains the stack", func(t *testing.T) {
+		out, err := fixtureCommand(bin, nil, "--keep").CombinedOutput()
+		require.NoError(t, err, string(out))
+		var project string
+		for _, line := range strings.Split(string(out), "\n") {
+			if p, ok := strings.CutPrefix(line, "kept compose project "); ok {
+				project = p
+			}
+		}
+		require.NotEmpty(t, project, string(out))
+		t.Cleanup(func() { _ = exec.Command(bin, "down", project).Run() })
+		require.Contains(t, string(out), "export VERITY_DISCOVERY=")
+		require.NotEmpty(t, dockerLines(t, "ps", "-q", "--filter", "label=com.docker.compose.project="+project))
+		require.Empty(t, dockerLines(t, "ps", "-aq", "--filter", "label=dev.verity.reaper-for="+project))
+		removed, err := exec.Command(bin, "down", project).CombinedOutput()
+		require.NoError(t, err, string(removed))
+		require.Empty(t, leftovers(t, volumesBefore))
+	})
+
 	t.Run("examples/todo: parallel suites share one Postgres", func(t *testing.T) {
 		dir, err := filepath.Abs("../../examples/todo")
 		require.NoError(t, err)

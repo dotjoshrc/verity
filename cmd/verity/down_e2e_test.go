@@ -36,7 +36,7 @@ func TestDownDocker(t *testing.T) {
 	bin := verityBuild(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	cmd := fixtureCommand(bin, []string{"FIXTURE_SLEEP=2m", "FIXTURE_REPORT_PGID=1"}, "--", "-v", "-run", "TestSlow")
+	cmd := fixtureCommand(bin, []string{"FIXTURE_SLEEP=2m", "FIXTURE_REPORT_PGID=1"}, "--keep", "--", "-v", "-run", "TestSlow")
 	stdout, err := cmd.StdoutPipe()
 	require.NoError(t, err)
 	var stderr bytes.Buffer
@@ -65,6 +65,7 @@ func TestDownDocker(t *testing.T) {
 	projects := dockerLines(t, "ps", "--filter", "label=com.docker.compose.service=db", "--format", `{{.Label "com.docker.compose.project"}}`)
 	require.Len(t, projects, 1)
 	project := projects[0]
+	require.Empty(t, dockerLines(t, "ps", "-aq", "--filter", "label=dev.verity.reaper-for="+project), "--keep must skip Ryuk")
 	t.Cleanup(func() { _ = exec.Command(bin, "down", project).Run() })
 	require.NoError(t, cmd.Process.Kill())
 	_ = syscall.Kill(-group, syscall.SIGKILL)

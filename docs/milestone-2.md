@@ -1,7 +1,7 @@
 # Verity milestone 2: more backends and a safer run
 
 Status: in progress, 2026-10-24. Shared discovery, host-gateway injection, Redis,
-automatic failure logs, and `verity down` are implemented. The mock-server provider is deferred
+automatic failure logs, and `verity down` with Ryuk recovery are implemented. The mock-server provider is deferred
 for later discussion; remaining steps and spikes are pending. Companion to
 `DESIGN.md`, which stays the source of truth for milestone 1 and the overall
 design. Rows marked "default" are proposals that nobody has confirmed.
@@ -71,7 +71,7 @@ Unconfirmed rows are marked "default". Change them here before implementing.
 | Callbacks on Linux (`host-gateway`)             | The CLI injects `extra_hosts: ["host.docker.internal:host-gateway"]` into every service that does not already define that host. Decided by the host-gateway spike; closes `DESIGN.md` open question 4. (default)                                                                                                                  |
 | Failure-log capture transport                   | The library shells out to `docker compose -p <project> logs --since <test start> --no-color --tail N` in a `t.Cleanup` when the test failed. It never imports `docker/compose`. If `docker` is not on PATH, it logs one line saying so and carries on. The project name comes from a new optional discovery field, `project`. (default) |
 | Failure-log noise                               | Logs are stack-wide for the window, so parallel suites show up in each other's output. Accepted and documented. Filtering by suite is out of scope. (default)                                                                                                                                                                     |
-| Hard-kill cleanup                               | Two layers: `verity down [--all]` removes projects labelled as verity's (always), and a watchdog is added only if the spike favours it over a reaper image (below). (default)                                                                                                                                                      |
+| Hard-kill cleanup                               | Two layers: normal Compose teardown plus a per-run Ryuk reaper for connection loss; `verity down [--all]` remains manual recovery. `--keep` skips Ryuk.                                                                                                                                                      |
 | Per-test isolation                              | No new provisioning engine. Document and test calling `NewSuite` inside a subtest, and add `verity.PerTest()` only if the spike shows `RunSuite` cannot give a fresh suite value per method safely. (default)                                                                                                                      |
 | Per-suite Postgres roles before `CONNECTION LIMIT` | Roles come first, because superusers are exempt from a database's `CONNECTION LIMIT` (to be confirmed by the spike). Until a suite connects as a non-superuser, the limit does nothing. (default)                                                                                                                              |
 | Container mode                                  | Moved to milestone 3. It is the largest item by far and its open question (macOS bind-mount and VM CPU cost) is unmeasured. **This is the user's call.** (default)                                                                                                                                                               |
@@ -256,8 +256,13 @@ including stopped containers and resource-only projects. Identification uses the
 Compose project label with a `verity-` prefix. The README documents destructive
 volume cleanup and the fact that `--all` includes active/kept runs.
 
-Watchdog/reaper evaluation is deferred for separate discussion. Cleanup is
-explicit for now. The Linux Docker acceptance test passes: `SIGKILL` a running
+A [Ryuk spike](ryuk-spike.md) passed on Linux for disconnect, process/group
+`SIGKILL`, label isolation, and reconnection grace. Ryuk is now integrated in the CLI: its exact-project registration must be
+acknowledged before `Up`, its connection is held through `Down`, and `--keep`
+skips it. Startup failure aborts before stack creation. Successful normal
+teardown removes the reaper immediately; otherwise connection loss leaves Ryuk
+to clean the run after its default 10-second grace. Desktop socket selection
+follows Testcontainers-Go but remains hardware-unverified. The Linux Docker acceptance test passes: `SIGKILL` a running
 CLI, list without removal, remove its named project, then remove network/volume-only
 leftovers with `--all` while preserving an unrelated project. Docker Desktop
 remains unverified.
@@ -271,7 +276,7 @@ Gated by spike 5.
   `verity down`, record that and skip.
 
 Acceptance: `SIGKILL` the CLI mid-run, then `verity down --all` leaves no
-containers or networks from the run. If the watchdog is built, `SIGKILL` alone
+containers or networks from the run. With Ryuk enabled, `SIGKILL` alone
 leaves none after a few seconds. `verity down` with no argument removes nothing.
 
 ## Step 7: Postgres per-suite roles, then `CONNECTION LIMIT`

@@ -38,6 +38,11 @@ func TestFails(t *testing.T) {
 
 func TestSlow(t *testing.T) {
 	if os.Getenv("FIXTURE_REPORT_PGID") != "" {
+		d, err := core.DecodeDiscovery(os.Getenv(core.DiscoveryEnv))
+		if err != nil {
+			t.Fatal(err)
+		}
+		fmt.Printf("fixture project: %s\n", d.Project)
 		fmt.Printf("fixture process group: %d\n", syscall.Getpgrp())
 	}
 	if os.Getenv("FIXTURE_IGNORE_SIGINT") != "" {
