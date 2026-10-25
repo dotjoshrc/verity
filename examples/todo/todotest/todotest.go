@@ -5,6 +5,7 @@ package todotest
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -14,6 +15,9 @@ import (
 
 	"github.com/dotjoshrc/verity"
 	"github.com/dotjoshrc/verity/examples/todo"
+	"github.com/dotjoshrc/verity/providers/redis"
+	"github.com/dotjoshrc/verity/providers/wiremock"
+	"github.com/stretchr/testify/require"
 )
 
 // SkipWithoutVerity skips the test under a plain `go test`, so the repo's own
@@ -77,4 +81,31 @@ func List(t *testing.T, base string) []string {
 func quote(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b)
+}
+
+// CachedTitle fetches a suite-specific mock response and stores it in Redis.
+// Both packages use the same path and key suffix to exercise provider isolation.
+func CachedTitle(t *testing.T, cache *redis.Keyspace, mock *wiremock.Server, title string) string {
+	t.Helper()
+	mapping, err := json.Marshal(map[string]any{
+		"request":  map[string]any{"method": "GET", "urlPath": "/title"},
+		"response": map[string]any{"status": 200, "body": title},
+	})
+	require.NoError(t, err)
+	require.NoError(t, mock.Register(t.Context(), mapping))
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, mock.URL()+"/title", nil)
+	require.NoError(t, err)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.Equal(t, title, string(body))
+	key := cache.Prefix() + "title"
+	require.NoError(t, cache.Client().Set(t.Context(), key, string(body), 0).Err())
+	cached, err := cache.Client().Get(t.Context(), key).Result()
+	require.NoError(t, err)
+	require.Equal(t, title, cached)
+	return cached
 }

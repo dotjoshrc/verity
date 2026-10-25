@@ -24,6 +24,10 @@ type backendType struct {
 }
 
 var backendTypes = map[string]backendType{
+	"wiremock": {
+		port:    8080,
+		resolve: func(func(string) string) core.Endpoint { return core.Endpoint{} },
+	},
 	"postgres": {
 		port: 5432,
 		fileVars: map[string]string{

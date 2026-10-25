@@ -1,5 +1,6 @@
 [tools]
 go = "1.27.3"
+"go:github.com/sudorandom/fauxrpc/cmd/fauxrpc" = "latest"
 golangci-lint = "2.15.0"
 
 [tasks.lint]
@@ -16,11 +17,14 @@ run = '''
 set -e
 pg="docker compose -f providers/postgres/testdata/compose.yaml -p verity-test-pg"
 redis="docker compose -f providers/redis/testdata/compose.yaml -p verity-test-redis"
-trap "$pg down -v; $redis down -v" EXIT
+wiremock="docker compose -f providers/wiremock/testdata/compose.yaml -p verity-test-wiremock"
+trap "$pg down -v; $redis down -v; $wiremock down -v" EXIT
 $pg up -d --wait
 $redis up -d --wait
+$wiremock up -d --wait
 export VERITY_TEST_POSTGRES="postgres://postgres:postgres@$($pg port db 5432)/postgres?sslmode=disable"
 export VERITY_TEST_REDIS="redis://default:admin@$($redis port cache 6379)"
+export VERITY_TEST_WIREMOCK="http://$($wiremock port mock 8080)"
 go test -count=1 ./... ./cmd/verity/...
 '''
 

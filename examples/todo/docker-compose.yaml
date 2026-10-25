@@ -1,5 +1,4 @@
-# One shared Postgres for every suite. verity publishes its port (on 127.0.0.1)
-# and clones the `todo` database once per suite, so no `ports` here.
+# Shared backends; verity publishes their ports on loopback and isolates each suite.
 services:
   db:
     image: postgres:17-alpine
@@ -25,3 +24,21 @@ services:
       "-c",
       "psql -v ON_ERROR_STOP=1 -h db -U postgres -d todo -f /migrations/001_init.sql",
     ]
+
+  cache:
+    image: redis:7-alpine
+    labels: { verity.type: redis, verity.password: admin }
+    command: ["redis-server", "--requirepass", "admin"]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a admin ping | grep -q PONG"]
+      interval: 1s
+      retries: 30
+
+  mock:
+    image: wiremock/wiremock:3.13.1
+    labels: { verity.type: wiremock }
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/__admin/mappings >/dev/null"]
+      interval: 1s
+      timeout: 5s
+      retries: 30

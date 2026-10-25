@@ -1,0 +1,10 @@
+# Fixture for Verity's own tests; real stacks leave port publishing to Verity.
+services:
+  mock:
+    image: wiremock/wiremock:3.13.1
+    ports: ["127.0.0.1::8080"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/__admin/mappings >/dev/null"]
+      interval: 1s
+      timeout: 5s
+      retries: 30

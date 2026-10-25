@@ -55,9 +55,9 @@ integration testing.
 ## How it works
 
 Verity runs many suites in parallel against **one shared, ephemeral compose
-stack**. Each suite gets its own slice of every backend (today, a Postgres
-database cloned from the schema your compose stack already created) and its own
-in-process instance of your service, wired to that slice.
+stack**. Each suite gets its own slice of every backend: a Postgres database
+clone, a Redis ACL user and key prefix, or a WireMock URL prefix. It also gets its
+own in-process instance of your service, wired to those slices.
 
 1. Label the backends in your compose file. Compose stays the only source of
    truth; there is no second config.
@@ -83,11 +83,11 @@ in-process instance of your service, wired to that slice.
    injectable entrypoint that reads config through the `getenv` it is given, not
    `os.Getenv`, and stops when its context is cancelled.
 
-> **Status:** early. The library (`Use`, `Get`, `WithService`, the Postgres
-> provider) and `verity run` both work. See [`examples/todo`](examples/todo) for
-> a runnable project. Suites that call `Use` need `VERITY_DISCOVERY`, which only
-> `verity run` sets, so they fail under a plain `go test` with a message saying
-> so.
+> **Status:** early. Postgres, Redis, and WireMock providers, automatic failure
+> logs, and crash cleanup are implemented. See [`examples/todo`](examples/todo)
+> for a runnable project using all three backends. Suites that call `Use` need
+> `VERITY_DISCOVERY`, which only `verity run` sets, so they fail under a plain
+> `go test` with a message saying so.
 
 ## CLI
 
@@ -195,8 +195,8 @@ processes on the host.
 
 | Label                                               | Meaning                                                      |
 | --------------------------------------------------- | ------------------------------------------------------------ |
-| `verity.type`                                       | Backend type: `postgres` or `redis`. Required to be managed. |
-| `verity.port`                                       | Internal port, if not the type's default (5432, 6379).       |
+| `verity.type`                                       | Backend type: `postgres`, `redis`, or `wiremock`. Required to be managed. |
+| `verity.port`                                       | Internal port, if not the type's default (5432, 6379, 8080).       |
 | `verity.user`, `verity.password`, `verity.database` | Override the admin credentials read from the service's env.  |
 
 A one-shot service (for example, a migration job) can be labelled
@@ -224,6 +224,54 @@ else is refused. Isolation is moderate: values and pub/sub are separate, and
 commands that reach across suites (`FLUSHALL`, `KEYS`, `CONFIG`, `SELECT`, ...) are
 denied, but `SCAN` still lists other suites' key names. `redis.EnvName` and
 `redis.PrefixEnvName` rename the two env vars.
+
+#### WireMock
+
+Import `github.com/dotjoshrc/verity/providers/wiremock` and label a WireMock 3
+service `verity.type: wiremock`. Verity publishes port 8080 on an ephemeral host
+port (override the internal port with `verity.port`). For example:
+
+```yaml
+services:
+  mock:
+    image: wiremock/wiremock:3.13.1
+    labels: { verity.type: wiremock }
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/__admin/mappings >/dev/null"]
+      interval: 1s
+      retries: 30
+```
+
+Each suite receives `MOCK_BASE_URL`, including its unique path prefix. Rename it
+with `wiremock.EnvName("PAYMENTS_URL")`. The service must preserve that prefix:
+append `/payments` to the base URL rather than resolve `/payments` from its root.
+
+Register native WireMock JSON through the suite's handle (using `encoding/json`):
+
+```go
+suite := verity.NewSuite[MySuite](t, verity.Use("mock"), verity.WithService(...))
+mock := verity.Get[*wiremock.Server](suite, "mock")
+err := mock.Register(t.Context(), json.RawMessage(`{
+  "request": {"method": "POST", "urlPath": "/payments"},
+  "response": {"status": 200, "jsonBody": {"accepted": true}}
+}`))
+require.NoError(t, err)
+// The service reads MOCK_BASE_URL; tests can also call mock.URL() + "/payments".
+```
+
+Exactly one of `url`, `urlPath`, or `urlPathTemplate` must start with `/`;
+`url` may include a query string. Regex URL selectors and catch-all mappings are
+not supported. Body, header, and query matchers remain native WireMock JSON.
+Mapping IDs, scenario names, and reserved `metadata.veritySuite` are managed by
+the provider. Other metadata, responses, and extension settings pass through.
+Suite cleanup deletes only that suite's mappings and their scenario state.
+
+Isolation prevents accidental collisions, not access to another suite or the
+shared admin API. Request history remains shared; response templates, redirects,
+proxy targets, and extension side effects are not rewritten or isolated. Custom
+images and the separately developed ConnectRPC extension belong in Compose;
+the provider does not implement Connect or callbacks. An extension providing
+callbacks can target the host address from `Env.Addr()`.
 
 ## Module
 
@@ -392,7 +440,7 @@ go test ./... ./cmd/verity/...
 ```
 
 `mise run test` and `mise run lint` check both modules. `mise run test-integration`
-also starts the Postgres and Redis fixtures. Run that task without
+also starts the Postgres, Redis, and WireMock fixtures. Run that task without
 `VERITY_TEST_DOCKER`. After it finishes and removes its fixtures, run the CLI's
 Docker lifecycle tests separately against a clean Docker daemon:
 
@@ -402,6 +450,14 @@ VERITY_TEST_DOCKER=1 go test -count=1 ./cmd/verity/...
 
 Those tests check for leftover stacks and exercise destructive `down --all`
 cleanup, so they must not overlap the provider fixtures or other Verity runs.
+
+To run only the WireMock provider integration tests:
+
+```sh
+docker compose -f providers/wiremock/testdata/compose.yaml -p verity-test-wiremock up -d --wait
+VERITY_TEST_WIREMOCK="http://$(docker compose -f providers/wiremock/testdata/compose.yaml -p verity-test-wiremock port mock 8080)" go test -count=1 ./providers/wiremock
+docker compose -f providers/wiremock/testdata/compose.yaml -p verity-test-wiremock down -v
+```
 
 To check the library independently of the workspace, run
 `GOWORK=off go test ./...` at the repository root. Run `GOWORK=off go mod tidy`

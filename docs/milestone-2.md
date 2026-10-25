@@ -1,12 +1,14 @@
 # Verity milestone 2: more backends and a safer run
 
-Status: in progress, 2026-10-24. Shared discovery, host-gateway injection, Redis,
-automatic failure logs, `verity down` with Ryuk recovery, and Postgres per-suite
-roles, connection limits, and documented per-test isolation are implemented. The
-mock-server provider is deferred for later discussion; Docker Desktop validation
-is complete on macOS ARM64. Final acceptance remains pending. Companion to
-[milestone 1](milestone-1.md), which stays the source of truth for milestone 1 and the overall
-design. Rows marked "default" are proposals that nobody has confirmed.
+Status: complete, 2026-10-25. Shared discovery, host-gateway injection, Redis,
+WireMock, automatic failure logs, `verity down` with Ryuk recovery, Postgres
+per-suite roles and connection limits, and documented per-test isolation are
+implemented. Final integrated acceptance passed on Linux ARM64, including the
+combined Postgres/Redis/WireMock example. Previously recorded Docker Desktop
+checks passed on macOS ARM64; the combined example was validated on Linux only.
+ConnectRPC support remains a separate extension. Companion to
+[milestone 1](milestone-1.md), which stays the source of truth for milestone 1 and
+the overall design. Rows marked "default" record the original proposed decisions.
 
 ## Summary
 
@@ -68,7 +70,7 @@ Unconfirmed rows are marked "default". Change them here before implementing.
 | New `Endpoint` fields                              | Add `Extra map[string]string` (`json:"extra,omitempty"`), filled from `verity.opt.<key>` labels. No new typed fields until a spike shows one is needed: Redis needs only user and password, and a mock server needs only host and port. (default)                                                                                                                                              |
 | Redis isolation level                              | ACL user restricted to a key prefix and a channel prefix, with dangerous and keyless-global commands denied. The level is "moderate", not "strong": `SCAN` still lists foreign key names (spike 1). A server without the needed ACL support (below Redis 7) is an error naming Redis 7, not a silent downgrade to prefix-only; a `redis.PrefixOnly()` opt-in can be added if someone needs it. |
 | Redis credentials                                  | Label-only (`verity.password`, `verity.user`). The official image takes `--requirepass` on its command line, not from env, so there is nothing to read from the service environment. A missing password with a password-protected server fails with a message naming the label. (default)                                                                                                      |
-| Mock server product                                | WireMock, namespaced by URL path prefix `/verity/<suite>/`; the service must take its upstream base URL from an env var. **This is the user's call.** WireMock is the default because it has an admin API, a healthcheck, and a stub-by-metadata cleanup. (default)                                                                                                                            |
+| Mock server product                                | WireMock, namespaced by URL path prefix `/verity/<suite>/`; the service must take its upstream base URL from an env var. Chosen by the user. Its admin API handles runtime registration and metadata-based cleanup; ConnectRPC support is developed separately as an extension.                                                                                                                            |
 | Mock-server contract on the service                | Same shape as the Redis prefix: it only isolates if the service reads the base URL (and prefix) the provider hands it. Documented as a requirement on the service under test, next to the in-process runner requirements.                                                                                                                                                                      |
 | Callbacks on Linux (`host-gateway`)                | The CLI injects `extra_hosts: ["host.docker.internal:host-gateway"]` into every service that does not already define that host. Decided by the host-gateway spike; closes [milestone 1](milestone-1.md) open question 4. (default)                                                                                                                                                                               |
 | Failure-log capture transport                      | The library shells out to `docker compose -p <project> logs --since <test start> --no-color --tail N` in a `t.Cleanup` when the test failed. It never imports `docker/compose`. If `docker` is not on PATH, it logs one line saying so and carries on. The project name comes from a new optional discovery field, `project`. (default)                                                        |
@@ -94,8 +96,8 @@ which spike gates it.
 2. **Mock server (gates step 4).** Start WireMock in compose with a healthcheck.
    Register stubs under `/verity/<id>/...` through the admin API, tag them with
    metadata, and delete by metadata. Confirm two suites cannot match each other's
-   stubs by path and that a callback to `host.docker.internal` works. If the
-   user picks another product, repeat for it.
+   stubs by path and that metadata cleanup preserves the other suite. Callback
+   implementation and ConnectRPC support belong to separately installed extensions.
 3. **`host-gateway` injection (gates step 4 and closes open question 4).**
    Append `extra_hosts` to every loaded service in `publishLoopback`'s sibling
    and confirm a container reaches a host listener on Linux. Check it is harmless
@@ -251,21 +253,31 @@ names Redis 7.
 
 ## Step 4: Mock-server provider
 
-Gated by spikes 2 and 3, and by the user's choice of product.
+Implemented (2026-10-25). WireMock is the chosen backend. The provider uses
+native mapping JSON and the existing discovery/resource lifecycle; it does not
+implement ConnectRPC, callbacks, or a custom server.
 
-- `verity/providers/wiremock` (name follows the product). Type `wiremock`, default
-  port 8080.
-- `Provision`: reserve a path prefix for the suite, return a `Server` handle with
-  `URL()` (the base URL, prefix included) and helpers to register stubs through
-  the admin API, tagged with the suite's metadata. Env: `MOCK_BASE_URL` (default
-  name, configurable with `EnvName`).
-- `Release`: delete the suite's stubs by metadata.
-- Callbacks: `Env.Addr()` already returns `host.docker.internal:<port>`; the
-  provider documents using it as the stub's callback target.
+- `verity/providers/wiremock`, type `wiremock`, default port 8080.
+- `Provision` returns a `*Server` with `URL()` and
+  `Register(ctx, json.RawMessage) error`. `MOCK_BASE_URL` includes a unique suite
+  prefix; `EnvName` changes the environment variable name.
+- Registration prefixes `url`, `urlPath`, or `urlPathTemplate`, namespaces
+  scenarios, assigns fresh mapping IDs, and adds reserved suite metadata.
+  Regex URL selectors and mappings without a URL selector are rejected.
+  Other fields, including response and extension configuration, pass through.
+- `Release` removes only mappings matching the suite metadata, not shared
+  mappings or request history. The service must preserve the base URL prefix;
+  isolation prevents accidental collisions and is not a security boundary.
+- Custom images and the separately developed ConnectRPC extension are configured
+  in Compose. Existing host-gateway support remains available to extensions.
 
-Acceptance: two suites register the same path under different prefixes and only
-see their own stubs; a callback from the mock to a service running in a suite
-works on Linux with step 2; `Release` leaves no stubs.
+Acceptance: the opt-in provider integration tests register the same path and
+scenario in two parallel suites, verify independent responses/state, and release
+one while preserving the other. A `NewSuite` test covers registration, typed
+handle lookup, path templates, and automatic cleanup. These tests passed against
+WireMock 3.13.1 on Linux ARM64, alongside the Postgres and Redis integration tests.
+See the README for fixture commands. Combined Postgres/Redis/WireMock example
+acceptance passed on Linux ARM64 (see final validation below).
 
 ## Step 5: Failure-log capture
 
@@ -380,6 +392,36 @@ Host-reported results: macOS 27.0.1 (build 26A434), ARM64; Docker Desktop
 These results cover macOS ARM64 only; Windows, Intel Mac, and rootless Docker
 remain unverified.
 
+## Final integrated validation (2026-10-25)
+
+Passed on Linux ARM64 with Go 1.27.0, Docker Engine 29.7.2, and Compose v5.5.0:
+
+- `go build ./... ./cmd/verity/...`, `go vet ./... ./cmd/verity/...`, and
+  `go test -count=1 ./... ./cmd/verity/...` passed for both modules.
+- `VERITY_TEST_DOCKER=1 go test -count=1 -v ./... ./cmd/verity/...` passed
+  (CLI package: 64.092s). `TestEndToEnd` runs the combined example's alpha and
+  beta packages with `go test -p=2`. Both fetch distinct responses from the same
+  WireMock path, write under the same Redis key suffix with their own prefixes,
+  and post the resulting titles through their service instances to Postgres.
+  The example's service itself remains Postgres-only; suites use the other
+  provider handles directly.
+- The same acceptance test runs the example again with `TODO_FAIL=1`. It verifies
+  exit code 1, the deliberate suite failure, and `todo failure-log marker` from
+  Postgres in the automatic backend logs. Both runs leave no containers,
+  networks, or additional volumes.
+- `TestDownDocker`, `TestReaperDocker`, `TestHostGatewayCallback`, and
+  `TestFailureLogsDocker` ran without skipping. They cover manual recovery,
+  `--all`, automatic cleanup after CLI and process-group SIGKILL, host callbacks,
+  and failure logs. Existing normal teardown, SIGINT, and `--keep` checks passed.
+- The `test-integration` task's fixture workflow passed against real Postgres,
+  Redis, and WireMock, including provider isolation and release tests.
+  After fixture teardown, the daemon had no containers or volumes and only its
+  built-in networks.
+
+Independent read-only review found no blocking issues in the combined example
+and acceptance test changes. Windows, Intel Mac, rootless Docker, and the combined
+example on Docker Desktop remain unverified.
+
 ## Definition of done
 
 From `examples/`, one example suite uses Postgres, Redis, and the mock server
@@ -401,8 +443,8 @@ state. `go build`, `go vet`, and `go test` cover both modules (root `./...` and
 
 ## Risks and open questions
 
-1. **Redis ACLs may not isolate as much as the design table says** ("moderate").
-   Spike 1 decides, and the docs must state the result.
+1. **Redis isolation is moderate.** ACLs isolate values and channels, but `SCAN`
+   exposes other suites' key names. The provider and README document this limit.
 2. **Prefix and base-URL isolation depend on the service.** A service that ignores
    `REDIS_KEY_PREFIX` or `MOCK_BASE_URL` is not isolated. Verity cannot detect it.
 3. **Per-suite roles change what `DATABASE_URL` can do.** Existing users whose
@@ -410,5 +452,5 @@ state. `go build`, `go vet`, and `go test` cover both modules (root `./...` and
    is the intended hardening, but it is a behaviour change to announce.
 4. **`docker compose logs` from the test process** assumes the Docker CLI and
    compose plugin are on PATH there. Best effort only.
-5. **Watchdog survival.** A process-group kill or a closed terminal may take the
-   watchdog with the CLI. Spike 5 measures it.
+5. **Cleanup requires the Docker daemon.** Ryuk handles connection loss and
+   process-group kills; manual recovery remains available through `verity down`.

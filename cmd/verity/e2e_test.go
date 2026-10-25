@@ -149,7 +149,7 @@ func TestEndToEnd(t *testing.T) {
 		require.Empty(t, leftovers(t, volumesBefore))
 	})
 
-	t.Run("examples/todo: parallel suites share one Postgres", func(t *testing.T) {
+	t.Run("examples/todo: parallel suites share Postgres, Redis and WireMock", func(t *testing.T) {
 		dir, err := filepath.Abs("../../examples/todo")
 		require.NoError(t, err)
 
@@ -176,6 +176,18 @@ func TestEndToEnd(t *testing.T) {
 		require.Contains(t, string(out), "--- PASS: TestAlpha/TestTodosAreIsolated")
 		require.Contains(t, string(out), "--- PASS: TestBeta/TestTodosAreIsolated")
 		require.Len(t, strings.Fields(created.String()), 1, "want one Postgres container for the whole run")
+		require.Empty(t, leftovers(t, volumesBefore))
+
+		cmd = exec.Command(bin, "run", "--", "-v")
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "TODO_FAIL=1")
+		out, err = cmd.CombinedOutput()
+		var exitErr *exec.ExitError
+		require.ErrorAs(t, err, &exitErr, string(out))
+		require.Equal(t, 1, exitErr.ExitCode())
+		require.Contains(t, string(out), "deliberate example failure")
+		require.Contains(t, string(out), "Backend logs (shared Compose stack):")
+		require.Contains(t, string(out), "todo failure-log marker")
 		require.Empty(t, leftovers(t, volumesBefore))
 	})
 }

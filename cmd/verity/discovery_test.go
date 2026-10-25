@@ -44,6 +44,22 @@ services:
 			},
 		},
 		{
+			name: "wiremock: default and overridden port",
+			compose: `
+services:
+  mock:
+    image: wiremock/wiremock
+    labels: {verity.type: wiremock}
+  custom:
+    image: wiremock/wiremock
+    labels: {verity.type: wiremock, verity.port: "9090"}
+`,
+			want: map[string]core.Endpoint{
+				"mock":   {Name: "mock", Type: "wiremock", Port: 8080},
+				"custom": {Name: "custom", Type: "wiremock", Port: 9090},
+			},
+		},
+		{
 			name: "redis: default user, password from the label only",
 			compose: `
 services:
