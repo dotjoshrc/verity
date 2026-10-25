@@ -76,14 +76,14 @@ func sourceDatabase(t *testing.T, ep core.Endpoint) core.Endpoint {
 	t.Helper()
 
 	admin := open(t, ep, adminDatabase)
-	name := "verity_src_" + randHex(t)
+	name := "verity_src_'$$\\" + randHex(t)
 	_, err := admin.Exec("CREATE DATABASE " + quote(name))
 	require.NoError(t, err)
 	dropOnCleanup(t, admin, name)
 
 	src, err := sql.Open("pgx", dsn(ep, name))
 	require.NoError(t, err)
-	_, err = src.Exec("CREATE TABLE items (id serial PRIMARY KEY, v text); INSERT INTO items (v) VALUES ('seed');")
+	_, err = src.Exec("CREATE TABLE items (id serial PRIMARY KEY, v text); INSERT INTO items (v) VALUES ('seed'); CREATE SCHEMA extra; CREATE TABLE extra.items (id serial PRIMARY KEY, v text);")
 	require.NoError(t, err)
 	require.NoError(t, src.Close())
 
@@ -94,7 +94,6 @@ func sourceDatabase(t *testing.T, ep core.Endpoint) core.Endpoint {
 
 func TestProvisionConcurrent(t *testing.T) {
 	ep := sourceDatabase(t, endpoint(t))
-	admin := open(t, ep, adminDatabase)
 
 	// Two providers stand in for two test processes, each with its own admin pool.
 	providers := []*provider{{}, {}}
@@ -123,7 +122,7 @@ func TestProvisionConcurrent(t *testing.T) {
 
 	for _, s := range dbs {
 		if s != nil { // drop whatever was created, even if an assertion below fails
-			dropOnCleanup(t, admin, s.Name())
+			t.Cleanup(func() { require.NoError(t, s.release(context.Background())) })
 		}
 	}
 
@@ -160,14 +159,13 @@ func TestEnvName(t *testing.T) {
 
 	res, err := (&provider{}).Provision(context.Background(), core.Request{RunID: "r", SuiteID: randHex(t), Endpoint: ep, Options: []any{EnvName("PG_URL")}})
 	require.NoError(t, err)
-	dropOnCleanup(t, open(t, ep, adminDatabase), res.Handle.(*Database).Name())
+	t.Cleanup(func() { require.NoError(t, res.Release(context.Background())) })
 
 	require.Equal(t, map[string]string{"PG_URL": res.Handle.(*Database).DSN()}, res.Env)
 }
 
 func TestLingeringSessionOnSourceDoesNotFailTheClone(t *testing.T) {
 	ep := sourceDatabase(t, endpoint(t))
-	admin := open(t, ep, adminDatabase)
 
 	// Postgres waits for sessions on the source to exit, and we rely on that
 	// instead of retrying. sql.Open does not connect, so hold a real session.
@@ -181,15 +179,21 @@ func TestLingeringSessionOnSourceDoesNotFailTheClone(t *testing.T) {
 
 	res, err := (&provider{}).Provision(context.Background(), core.Request{RunID: "r", SuiteID: randHex(t), Endpoint: ep})
 	require.NoError(t, err)
-	dropOnCleanup(t, admin, res.Handle.(*Database).Name())
+	t.Cleanup(func() { require.NoError(t, res.Release(context.Background())) })
 }
 
 func TestMissingSourceIsAnError(t *testing.T) {
 	ep := endpoint(t)
 	ep.Database = "verity_does_not_exist"
 
-	_, err := (&provider{}).Provision(context.Background(), core.Request{RunID: "r", SuiteID: randHex(t), Endpoint: ep})
+	suiteID := randHex(t)
+	_, err := (&provider{}).Provision(context.Background(), core.Request{RunID: "r", SuiteID: suiteID, Endpoint: ep})
 	require.ErrorContains(t, err, "verity_does_not_exist")
+	name, err := databaseName("r", suiteID)
+	require.NoError(t, err)
+	var count int
+	require.NoError(t, open(t, ep, adminDatabase).QueryRow("SELECT count(*) FROM pg_roles WHERE rolname = $1", name).Scan(&count))
+	require.Zero(t, count, "failed provisioning removes its role")
 }
 
 type dbSuite struct{ verity.Suite }
@@ -198,7 +202,6 @@ type dbSuite struct{ verity.Suite }
 // the init registration, verity.Get, and that t.Cleanup releases the pool.
 func TestThroughNewSuite(t *testing.T) {
 	ep := sourceDatabase(t, endpoint(t))
-	admin := open(t, ep, adminDatabase)
 
 	doc, err := core.Discovery{RunID: randHex(t)[:6], Backends: map[string]core.Endpoint{"db": ep}}.Encode()
 	require.NoError(t, err)
@@ -208,7 +211,6 @@ func TestThroughNewSuite(t *testing.T) {
 	t.Run("suite", func(t *testing.T) {
 		s := verity.NewSuite[dbSuite](t, verity.Use("db"))
 		db = verity.Get[*Database](s, "db")
-		dropOnCleanup(t, admin, db.Name())
 
 		var count int
 		require.NoError(t, db.DB().QueryRow("SELECT count(*) FROM items").Scan(&count))
@@ -216,4 +218,78 @@ func TestThroughNewSuite(t *testing.T) {
 	})
 
 	require.Error(t, db.DB().Ping(), "the suite's cleanup released the pool")
+}
+
+func TestRoleIsolationAndConnectionLimit(t *testing.T) {
+	ep := sourceDatabase(t, endpoint(t))
+	admin := open(t, ep, adminDatabase)
+	p := &provider{}
+	provision := func(options ...any) *Database {
+		res, err := p.Provision(context.Background(), core.Request{RunID: randHex(t), SuiteID: randHex(t), Endpoint: ep, Options: options})
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, res.Release(context.Background())) })
+		return res.Handle.(*Database)
+	}
+	a, b := provision(ConnLimit(2)), provision()
+	cfg, err := url.Parse(a.DSN())
+	require.NoError(t, err)
+	require.NotEqual(t, ep.User, cfg.User.Username())
+	for _, target := range []string{b.Name(), ep.Database, "postgres", "template1"} {
+		cfg.Path = "/" + target
+		db, err := sql.Open("pgx", cfg.String())
+		require.NoError(t, err)
+		err = db.Ping()
+		require.ErrorContains(t, err, "permission denied for database")
+		require.NoError(t, db.Close())
+	}
+	for _, statement := range []string{"CREATE ROLE forbidden", "CREATE DATABASE forbidden", "ALTER SYSTEM SET max_connections = '200'"} {
+		_, err := a.DB().Exec(statement)
+		require.Error(t, err)
+	}
+	_, err = a.DB().Exec("INSERT INTO items(v) VALUES ('suite'); INSERT INTO extra.items(v) VALUES ('suite'); CREATE TABLE own_table (id int)")
+	require.NoError(t, err, "cloned tables, sequences, and schema are usable")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	c1, err := a.DB().Conn(ctx)
+	require.NoError(t, err)
+	defer c1.Close()
+	c2, err := a.DB().Conn(ctx)
+	require.NoError(t, err)
+	defer c2.Close()
+	_, err = a.DB().Conn(ctx)
+	require.ErrorContains(t, err, "too many connections for database")
+	// The same database limit does not cap the administrative superuser.
+	super := open(t, ep, a.Name())
+	for range 5 {
+		conn, err := super.Conn(ctx)
+		require.NoError(t, err)
+		defer conn.Close()
+	}
+	require.NoError(t, c1.Close())
+	require.NoError(t, c2.Close())
+	require.NoError(t, a.release(ctx))
+	require.NoError(t, a.release(ctx))
+	var count int
+	require.NoError(t, admin.QueryRow("SELECT count(*) FROM pg_roles WHERE rolname = $1", a.Name()).Scan(&count))
+	require.Zero(t, count)
+	require.NoError(t, admin.QueryRow("SELECT count(*) FROM pg_database WHERE datname = $1", a.Name()).Scan(&count))
+	require.Zero(t, count)
+}
+
+func TestProvisionRejectsNonSuperuserAdmin(t *testing.T) {
+	ep := sourceDatabase(t, endpoint(t))
+	admin := open(t, ep, adminDatabase)
+	role := "verity_admin_" + randHex(t)
+	password := randHex(t)
+	_, err := admin.Exec("CREATE ROLE " + quote(role) + " LOGIN CREATEDB CREATEROLE PASSWORD " + literal(password))
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, err := admin.Exec("REVOKE CONNECT ON DATABASE postgres FROM " + quote(role) + "; DROP ROLE " + quote(role))
+		require.NoError(t, err)
+	})
+	_, err = admin.Exec("GRANT CONNECT ON DATABASE postgres TO " + quote(role))
+	require.NoError(t, err)
+	ep.User, ep.Password = role, password
+	_, err = (&provider{}).Provision(context.Background(), core.Request{RunID: "r", SuiteID: randHex(t), Endpoint: ep})
+	require.ErrorContains(t, err, "must be a superuser")
 }

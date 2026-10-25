@@ -5,6 +5,7 @@ package postgres
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"net/url"
 	"strconv"
 	"sync"
+	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" database/sql driver
 
@@ -22,7 +24,14 @@ func init() {
 	core.RegisterProvider("postgres", &provider{})
 }
 
-type envName string
+type (
+	envName   string
+	connLimit int
+)
+
+// ConnLimit caps concurrent connections to each suite database. The default is unlimited.
+// n must be positive; size service and test pools to fit within this limit.
+func ConnLimit(n int) any { return connLimit(n) }
 
 // EnvName sets the env var that carries the DSN. The default is DATABASE_URL.
 func EnvName(name string) any { return envName(name) }
@@ -30,6 +39,7 @@ func EnvName(name string) any { return envName(name) }
 // Database is one suite's isolated database.
 type Database struct {
 	name, dsn string
+	admin     *sql.DB
 
 	mu sync.Mutex
 	db *sql.DB
@@ -58,15 +68,19 @@ func (s *Database) DB() *sql.DB {
 	return s.db
 }
 
-func (s *Database) release(context.Context) error {
+func (s *Database) release(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	if s.db == nil {
-		return nil
+	var err error
+	if s.db != nil {
+		err = s.db.Close()
 	}
-
-	return s.db.Close()
+	// Drop the database first: its ownership and grants otherwise prevent DROP ROLE.
+	if _, dropErr := s.admin.ExecContext(ctx, "DROP DATABASE IF EXISTS "+quote(s.name)+" WITH (FORCE)"); dropErr != nil {
+		return errors.Join(err, dropErr)
+	}
+	_, dropErr := s.admin.ExecContext(ctx, "DROP ROLE IF EXISTS "+quote(s.name))
+	return errors.Join(err, dropErr)
 }
 
 type provider struct {
@@ -76,10 +90,16 @@ type provider struct {
 
 func (p *provider) Provision(ctx context.Context, req core.Request) (*core.Resource, error) {
 	envKey := "DATABASE_URL"
+	limit := -1
 	for _, o := range req.Options {
 		switch o := o.(type) {
 		case envName:
 			envKey = string(o)
+		case connLimit:
+			if o <= 0 {
+				return nil, errors.New("postgres: ConnLimit must be positive")
+			}
+			limit = int(o)
 		default:
 			return nil, fmt.Errorf("postgres: unknown option type %T", o)
 		}
@@ -104,11 +124,37 @@ func (p *provider) Provision(ctx context.Context, req core.Request) (*core.Resou
 	if err != nil {
 		return nil, err
 	}
-	if err := clone(ctx, admin, source, name); err != nil {
-		return nil, fmt.Errorf("postgres: clone %s as %s: %w", source, name, err)
+	var superuser bool
+	if err := admin.QueryRowContext(ctx, "SELECT rolsuper FROM pg_roles WHERE rolname = current_user").Scan(&superuser); err != nil {
+		return nil, fmt.Errorf("postgres: check admin privileges: %w", err)
 	}
-
-	database := &Database{name: name, dsn: dsn(req.Endpoint, name)}
+	if !superuser {
+		return nil, errors.New("postgres: backend admin credentials must be a superuser to enforce suite isolation")
+	}
+	// PUBLIC CONNECT would let every suite role connect to the source and its peers.
+	// These are dedicated, disposable backends; explicit grants are preserved.
+	if err := restrictConnections(ctx, admin); err != nil {
+		return nil, fmt.Errorf("postgres: restrict database connections: %w", err)
+	}
+	password := rand.Text()
+	if _, err := admin.ExecContext(ctx, "CREATE ROLE "+quote(name)+" LOGIN PASSWORD "+literal(password)+" NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS"); err != nil {
+		return nil, fmt.Errorf("postgres: create suite role: %w", err)
+	}
+	database := &Database{name: name, admin: admin}
+	if err := clone(ctx, admin, source, name, limit); err != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_, cleanupErr := admin.ExecContext(cleanupCtx, "DROP ROLE "+quote(name))
+		return nil, errors.Join(fmt.Errorf("postgres: clone %s as %s: %w", source, name, err), cleanupErr)
+	}
+	if err := grantClone(ctx, admin, req.Endpoint, name); err != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return nil, errors.Join(fmt.Errorf("postgres: grant clone access: %w", err), database.release(cleanupCtx))
+	}
+	ep := req.Endpoint
+	ep.User, ep.Password = name, password
+	database.dsn = dsn(ep, name)
 
 	return &core.Resource{
 		Env:     map[string]string{envKey: database.dsn},
@@ -133,7 +179,7 @@ func (p *provider) admin(ep core.Endpoint) (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Each clone is one statement, so a small cap cannot deadlock; it keeps many
+	// Provisioning does not hold a connection while acquiring another; this keeps many
 	// concurrent suites from using up the server's connections.
 	db.SetMaxOpenConns(4)
 

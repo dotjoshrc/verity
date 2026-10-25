@@ -1,7 +1,8 @@
 # Verity milestone 2: more backends and a safer run
 
 Status: in progress, 2026-10-24. Shared discovery, host-gateway injection, Redis,
-automatic failure logs, and `verity down` with Ryuk recovery are implemented. The mock-server provider is deferred
+automatic failure logs, `verity down` with Ryuk recovery, and Postgres per-suite
+roles and connection limits are implemented. The mock-server provider is deferred
 for later discussion; remaining steps and spikes are pending. Companion to
 `DESIGN.md`, which stays the source of truth for milestone 1 and the overall
 design. Rows marked "default" are proposals that nobody has confirmed.
@@ -60,21 +61,21 @@ in this milestone (see "Out of scope").
 
 Unconfirmed rows are marked "default". Change them here before implementing.
 
-| Question                                        | Decision                                                                                                                                                                                                                                                                                                                         |
-| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Discovery version                               | Stays `1`. New `Endpoint` fields are optional and `omitempty`. Old library with new CLI ignores them. New library with old CLI sees them empty, so a provider must treat empty as "use the default" and fail with a clear message only when a value is required. (default)                                                          |
-| New `Endpoint` fields                           | Add `Extra map[string]string` (`json:"extra,omitempty"`), filled from `verity.opt.<key>` labels. No new typed fields until a spike shows one is needed: Redis needs only user and password, and a mock server needs only host and port. (default)                                                                                  |
-| Redis isolation level                           | ACL user restricted to a key prefix and a channel prefix, with dangerous and keyless-global commands denied. The level is "moderate", not "strong": `SCAN` still lists foreign key names (spike 1). A server without the needed ACL support (below Redis 7) is an error naming Redis 7, not a silent downgrade to prefix-only; a `redis.PrefixOnly()` opt-in can be added if someone needs it. |
-| Redis credentials                               | Label-only (`verity.password`, `verity.user`). The official image takes `--requirepass` on its command line, not from env, so there is nothing to read from the service environment. A missing password with a password-protected server fails with a message naming the label. (default)                                          |
-| Mock server product                             | WireMock, namespaced by URL path prefix `/verity/<suite>/`; the service must take its upstream base URL from an env var. **This is the user's call.** WireMock is the default because it has an admin API, a healthcheck, and a stub-by-metadata cleanup. (default)                                                                |
-| Mock-server contract on the service             | Same shape as the Redis prefix: it only isolates if the service reads the base URL (and prefix) the provider hands it. Documented as a requirement on the service under test, next to the in-process runner requirements.                                                                                                            |
-| Callbacks on Linux (`host-gateway`)             | The CLI injects `extra_hosts: ["host.docker.internal:host-gateway"]` into every service that does not already define that host. Decided by the host-gateway spike; closes `DESIGN.md` open question 4. (default)                                                                                                                  |
-| Failure-log capture transport                   | The library shells out to `docker compose -p <project> logs --since <test start> --no-color --tail N` in a `t.Cleanup` when the test failed. It never imports `docker/compose`. If `docker` is not on PATH, it logs one line saying so and carries on. The project name comes from a new optional discovery field, `project`. (default) |
-| Failure-log noise                               | Logs are stack-wide for the window, so parallel suites show up in each other's output. Accepted and documented. Filtering by suite is out of scope. (default)                                                                                                                                                                     |
-| Hard-kill cleanup                               | Two layers: normal Compose teardown plus a per-run Ryuk reaper for connection loss; `verity down [--all]` remains manual recovery. `--keep` skips Ryuk.                                                                                                                                                      |
-| Per-test isolation                              | No new provisioning engine. Document and test calling `NewSuite` inside a subtest, and add `verity.PerTest()` only if the spike shows `RunSuite` cannot give a fresh suite value per method safely. (default)                                                                                                                      |
-| Per-suite Postgres roles before `CONNECTION LIMIT` | Roles come first, because superusers are exempt from a database's `CONNECTION LIMIT` (to be confirmed by the spike). Until a suite connects as a non-superuser, the limit does nothing. (default)                                                                                                                              |
-| Container mode                                  | Moved to milestone 3. It is the largest item by far and its open question (macOS bind-mount and VM CPU cost) is unmeasured. **This is the user's call.** (default)                                                                                                                                                               |
+| Question                                           | Decision                                                                                                                                                                                                                                                                                                                                                                                       |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Discovery version                                  | Stays `1`. New `Endpoint` fields are optional and `omitempty`. Old library with new CLI ignores them. New library with old CLI sees them empty, so a provider must treat empty as "use the default" and fail with a clear message only when a value is required. (default)                                                                                                                     |
+| New `Endpoint` fields                              | Add `Extra map[string]string` (`json:"extra,omitempty"`), filled from `verity.opt.<key>` labels. No new typed fields until a spike shows one is needed: Redis needs only user and password, and a mock server needs only host and port. (default)                                                                                                                                              |
+| Redis isolation level                              | ACL user restricted to a key prefix and a channel prefix, with dangerous and keyless-global commands denied. The level is "moderate", not "strong": `SCAN` still lists foreign key names (spike 1). A server without the needed ACL support (below Redis 7) is an error naming Redis 7, not a silent downgrade to prefix-only; a `redis.PrefixOnly()` opt-in can be added if someone needs it. |
+| Redis credentials                                  | Label-only (`verity.password`, `verity.user`). The official image takes `--requirepass` on its command line, not from env, so there is nothing to read from the service environment. A missing password with a password-protected server fails with a message naming the label. (default)                                                                                                      |
+| Mock server product                                | WireMock, namespaced by URL path prefix `/verity/<suite>/`; the service must take its upstream base URL from an env var. **This is the user's call.** WireMock is the default because it has an admin API, a healthcheck, and a stub-by-metadata cleanup. (default)                                                                                                                            |
+| Mock-server contract on the service                | Same shape as the Redis prefix: it only isolates if the service reads the base URL (and prefix) the provider hands it. Documented as a requirement on the service under test, next to the in-process runner requirements.                                                                                                                                                                      |
+| Callbacks on Linux (`host-gateway`)                | The CLI injects `extra_hosts: ["host.docker.internal:host-gateway"]` into every service that does not already define that host. Decided by the host-gateway spike; closes `DESIGN.md` open question 4. (default)                                                                                                                                                                               |
+| Failure-log capture transport                      | The library shells out to `docker compose -p <project> logs --since <test start> --no-color --tail N` in a `t.Cleanup` when the test failed. It never imports `docker/compose`. If `docker` is not on PATH, it logs one line saying so and carries on. The project name comes from a new optional discovery field, `project`. (default)                                                        |
+| Failure-log noise                                  | Logs are stack-wide for the window, so parallel suites show up in each other's output. Accepted and documented. Filtering by suite is out of scope. (default)                                                                                                                                                                                                                                  |
+| Hard-kill cleanup                                  | Two layers: normal Compose teardown plus a per-run Ryuk reaper for connection loss; `verity down [--all]` remains manual recovery. `--keep` skips Ryuk.                                                                                                                                                                                                                                        |
+| Per-test isolation                                 | No new provisioning engine. Document and test calling `NewSuite` inside a subtest, and add `verity.PerTest()` only if the spike shows `RunSuite` cannot give a fresh suite value per method safely. (default)                                                                                                                                                                                  |
+| Per-suite Postgres roles before `CONNECTION LIMIT` | Roles come first, because superusers are exempt from a database's `CONNECTION LIMIT` (confirmed by spike 4). Until a suite connects as a non-superuser, the limit does nothing. (default)                                                                                                                                                                                                      |
+| Container mode                                     | Moved to milestone 3. It is the largest item by far and its open question (macOS bind-mount and VM CPU cost) is unmeasured. **This is the user's call.** (default)                                                                                                                                                                                                                             |
 
 ## Step 0: Spikes
 
@@ -113,7 +114,7 @@ which spike gates it.
      too.
    - A reaper container (ryuk-style): needs a published image, the Docker socket
      path on Linux and Docker Desktop, and a connection back to the CLI.
-   Pick one, or neither if `verity down` is enough.
+     Pick one, or neither if `verity down` is enough.
 6. **Failure logs (gates step 5).** Confirm `docker compose -p <project> logs
    --since` works from the test process with only the project name, on Linux and
    macOS, and how it behaves when `docker` is absent or the project is gone.
@@ -146,6 +147,20 @@ the decisions table above is updated for any default that changes.
 - **Spike 1 follow-up: server versions.** Redis 6.0 has no channel ACLs
   (`resetchannels` is a syntax error) and 6.2 rejects negative subcommand rules
   (`-script|flush`: "Unknown command or category name"). Redis 7 is the minimum.
+
+- **Spike 4, Postgres roles and connection limits (2026-10-24, Postgres 17).**
+  The integration test holds two suite-role connections with `ConnLimit(2)`;
+  a third is refused while five superuser connections still succeed. Cloning
+  retains table/sequence/schema owners, so the provider grants access to existing
+  objects rather than reassigning shared ownership. The suite role owns its
+  database and can insert seed-backed data, use sequences and custom schemas,
+  and create its own tables. `PUBLIC CONNECT` must be revoked on existing
+  databases to deny source, sibling, and maintenance connections. ACL changes
+  use a transaction advisory lock across processes; parallel revokes otherwise
+  produce `tuple concurrently updated`. Clones disable connections until their
+  public access has been revoked. Tests cover eight concurrent provisions,
+  forbidden server operations, repeatable release, and role cleanup after a
+  failed clone.
 
 ## Step 1: Shared prerequisite
 
@@ -281,7 +296,13 @@ leaves none after a few seconds. `verity down` with no argument removes nothing.
 
 ## Step 7: Postgres per-suite roles, then `CONNECTION LIMIT`
 
-Gated by spike 4. The order matters: the limit is meaningless for superusers.
+Implemented (2026-10-24); spike 4 and Postgres 17 integration checks pass.
+The provider returns a random-password, non-superuser role, grants cloned object
+access, and drops both database and role on release. `ConnLimit(n)` requires a
+positive value and defaults to unlimited. The README documents pool budgeting,
+source-object ownership, and the dedicated-backend requirement: existing
+`PUBLIC CONNECT` grants are revoked across the server, preserving explicit grants.
+Server-level operations previously available through suite DSNs are now denied.
 
 - Roles: each suite gets a login role that owns its clone and can connect to
   nothing else, with no `CREATEDB`, `CREATEROLE`, or superuser. `DATABASE_URL`

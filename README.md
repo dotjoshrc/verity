@@ -192,11 +192,11 @@ processes on the host.
 
 #### Compose labels
 
-| Label                                               | Meaning                                                       |
-| --------------------------------------------------- | ------------------------------------------------------------- |
-| `verity.type`                                       | Backend type: `postgres` or `redis`. Required to be managed.  |
-| `verity.port`                                       | Internal port, if not the type's default (5432, 6379).        |
-| `verity.user`, `verity.password`, `verity.database` | Override the admin credentials read from the service's env.   |
+| Label                                               | Meaning                                                      |
+| --------------------------------------------------- | ------------------------------------------------------------ |
+| `verity.type`                                       | Backend type: `postgres` or `redis`. Required to be managed. |
+| `verity.port`                                       | Internal port, if not the type's default (5432, 6379).       |
+| `verity.user`, `verity.password`, `verity.database` | Override the admin credentials read from the service's env.  |
 
 A one-shot service (for example, a migration job) can be labelled
 `verity.wait: "true"`. Verity waits for it to exit 0 before running tests, and
@@ -264,6 +264,29 @@ the service's env; it fails the suite if a resource sets the same variable.
 change the path. `postgres.EnvName` sets the env var that carries the database
 URL (default `DATABASE_URL`). Everything is released when the test ends, the
 service first and then the resources.
+
+Postgres suites now receive a unique non-superuser login that owns their clone,
+not the admin credentials. It can use cloned tables, sequences, and routines,
+and create objects in cloned schemas. Existing objects retain their source
+owners, so altering or dropping those objects may require moving that setup to
+the Compose schema step. Server-wide operations such as `CREATE ROLE` and
+`ALTER SYSTEM` are denied. Cleanup closes the pool and drops the clone and role.
+
+Use a dedicated, disposable Postgres server with superuser admin credentials.
+Verity revokes `PUBLIC CONNECT` on every existing database, including the source
+and maintenance databases, so suite logins cannot connect to them. Existing
+explicit connection grants remain; other non-superuser clients that relied on
+`PUBLIC` need an explicit `GRANT CONNECT`. Create backend databases during Compose
+setup, before provisioning suites; databases created independently later are
+outside this isolation guarantee. This is isolation for cooperating tests, not
+a sandbox for untrusted SQL or privileged security-definer routines in the source.
+
+`verity.Use("db", postgres.ConnLimit(10))` optionally caps connections to each
+suite database; the default is unlimited. The limit must be positive and includes
+both service and test connections. Budget service-pool + test-pool connections
+per suite, then multiply by concurrent suites and leave headroom for admin and
+schema connections under the server's `max_connections`. A database limit does
+not increase that server-wide budget.
 
 ### Backend logs on test failure
 

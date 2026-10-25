@@ -73,3 +73,10 @@ func TestProvisionRejectsBadSource(t *testing.T) {
 		})
 	}
 }
+
+func TestProvisionRejectsInvalidConnectionLimit(t *testing.T) {
+	for _, limit := range []int{0, -1} {
+		_, err := (&provider{}).Provision(context.Background(), core.Request{Options: []any{ConnLimit(limit)}})
+		require.ErrorContains(t, err, "ConnLimit must be positive")
+	}
+}
