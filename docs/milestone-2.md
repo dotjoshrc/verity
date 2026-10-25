@@ -4,7 +4,7 @@ Status: in progress, 2026-10-24. Shared discovery, host-gateway injection, Redis
 automatic failure logs, `verity down` with Ryuk recovery, and Postgres per-suite
 roles, connection limits, and documented per-test isolation are implemented. The
 mock-server provider is deferred for later discussion; Docker Desktop validation
-and final acceptance remain pending. Companion to
+is complete on macOS ARM64. Final acceptance remains pending. Companion to
 [milestone 1](milestone-1.md), which stays the source of truth for milestone 1 and the overall
 design. Rows marked "default" are proposals that nobody has confirmed.
 
@@ -211,7 +211,7 @@ discovery output is unchanged for an existing fixture.
 
 Implemented (2026-10-24). Unit tests cover additions, existing mappings, overrides,
 and repeat application. The Docker-gated callback test passes on Linux; Docker
-Desktop compatibility remains unverified. Services sharing another container’s
+Desktop callback test also passes on macOS ARM64 (see validation below). Services sharing another container’s
 network namespace are skipped because Docker rejects `extra_hosts` there; the
 network-owning service receives the mapping.
 
@@ -278,7 +278,8 @@ Spike 6 confirmed on Linux with Compose v5.5.0: `logs -p <project>` works
 from a directory with no Compose file. A Docker-gated test runs a deliberately
 failing suite method and confirms its backend log marker appears. Subprocess
 tests cover passing methods, absent Docker, absent project, and command errors.
-Docker Desktop remains unverified.
+The Docker-gated failure-log test also passes on macOS ARM64 with Docker Desktop
+(see validation below).
 
 - In `RunSuite`, for each `Test*` method, record the start time and register a
   `t.Cleanup` that, when `t.Failed()`, runs `docker compose -p <project> logs
@@ -305,10 +306,10 @@ acknowledged before `Up`, its connection is held through `Down`, and `--keep`
 skips it. Startup failure aborts before stack creation. Successful normal
 teardown removes the reaper immediately; otherwise connection loss leaves Ryuk
 to clean the run after its default 10-second grace. Desktop socket selection
-follows Testcontainers-Go but remains hardware-unverified. The Linux Docker acceptance test passes: `SIGKILL` a running
+follows Testcontainers-Go and is validated on macOS ARM64. The Linux Docker acceptance test passes: `SIGKILL` a running
 CLI, list without removal, remove its named project, then remove network/volume-only
-leftovers with `--all` while preserving an unrelated project. Docker Desktop
-remains unverified.
+leftovers with `--all` while preserving an unrelated project. These cleanup tests
+also pass on Docker Desktop for macOS ARM64 (see validation below).
 
 Gated by spike 5.
 
@@ -360,6 +361,24 @@ No `PerTest()` option is planned. `RunSuite` continues to share the suite instan
 and its resources across methods; callers opt into isolation explicitly by
 creating suites inside subtests. This preserves caller-initialized fields and
 suite-hook semantics without a second provisioning path.
+
+## Docker Desktop validation (2026-10-24)
+
+Host-reported results: macOS 27.0.1 (build 26A434), ARM64; Docker Desktop
+4.93.0 (240920), Engine 29.8.1, Compose v5.5.1, context `desktop-linux`.
+
+- `VERITY_TEST_DOCKER=1 go test -count=1 -v ./cmd/verity/...` passed in
+  59.856s. `TestHostGatewayCallback`, `TestDownDocker`, `TestEndToEnd`, and
+  `TestReaperDocker` ran without skipping. Coverage includes normal teardown,
+  SIGINT, `--keep`, and Ryuk cleanup after CLI and process-group SIGKILL.
+- `go build ./...`, `go vet ./...`, and `go test -count=1 ./...` passed in
+  both the root and CLI modules.
+- `VERITY_TEST_DOCKER=1 go test -count=1 -v -run '^TestFailureLogsDocker$' .`
+  passed from the repo root (test: 1.70s; package: 1.887s), confirming automatic
+  backend log capture for a deliberately failing suite method on Desktop.
+
+These results cover macOS ARM64 only; Windows, Intel Mac, and rootless Docker
+remain unverified.
 
 ## Definition of done
 

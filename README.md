@@ -183,8 +183,9 @@ and remove the reaper immediately afterward. `--keep` skips Ryuk entirely.
 Ryuk uses a pinned `testcontainers/ryuk:0.14.0` image (pulled when missing) and
 mounts the Docker socket to perform cleanup. If it cannot start and acknowledge
 the run, Verity fails before starting the stack. Local Unix Docker sockets are
-supported, with Docker Desktop's daemon-side socket handled separately; Desktop
-and rootless behavior remain unverified on real hardware.
+supported, with Docker Desktop's daemon-side socket handled separately. Ryuk
+cleanup is verified on macOS ARM64 with Docker Desktop 4.93.0; rootless behavior
+remains unverified on real hardware.
 
 `verity down` remains a fallback if the reaper fails. Run it against the same
 Docker daemon used by `verity run`. Ryuk does not terminate orphaned Go test
@@ -368,8 +369,7 @@ container's network and cannot have their own `extra_hosts`. Verity skips them
 and adds the mapping to the network-owning service if it is in the same Compose
 project. For an external container, configure the mapping on that container.
 
-Callbacks have been verified on Linux. Docker Desktop compatibility remains
-unverified.
+Callbacks have been verified on Linux and macOS ARM64 with Docker Desktop 4.93.0.
 
 ## Developing Verity
 
