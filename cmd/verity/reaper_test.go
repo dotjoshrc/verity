@@ -171,21 +171,26 @@ func (c reaperCLI) Client() client.APIClient { return c.engine }
 func (c reaperCLI) DockerEndpoint() docker.Endpoint {
 	return docker.Endpoint{EndpointMeta: docker.EndpointMeta{Host: "unix:///var/run/docker.sock"}}
 }
+
 func (c *reaperClient) Info(context.Context, client.InfoOptions) (client.SystemInfoResult, error) {
 	var info client.SystemInfoResult
 	info.Info.OperatingSystem = "Linux"
 	return info, nil
 }
+
 func (c *reaperClient) ImageInspect(context.Context, string, ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 	return client.ImageInspectResult{}, c.inspectErr
 }
+
 func (c *reaperClient) ContainerCreate(_ context.Context, opts client.ContainerCreateOptions) (client.ContainerCreateResult, error) {
 	c.created = opts
 	return client.ContainerCreateResult{ID: "reaper"}, nil
 }
+
 func (c *reaperClient) ContainerStart(context.Context, string, client.ContainerStartOptions) (client.ContainerStartResult, error) {
 	return client.ContainerStartResult{}, errors.New("startup denied")
 }
+
 func TestReaperStartupFailureCleansContainer(t *testing.T) {
 	engine := &reaperClient{}
 	r, err := startReaper(context.Background(), reaperCLI{engine: engine}, "verity-abc123")
@@ -201,6 +206,7 @@ func (c *reaperClient) ImagePull(context.Context, string, client.ImagePullOption
 	c.pulled = true
 	return nil, errors.New("registry unavailable")
 }
+
 func TestReaperImageFailure(t *testing.T) {
 	for _, missing := range []bool{false, true} {
 		engine := &reaperClient{inspectErr: errors.New("inspect denied")}

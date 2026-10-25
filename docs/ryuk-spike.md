@@ -28,12 +28,12 @@ Ryuk ran independently in Docker.
 
 ## Observations
 
-| Trigger | Result | Cleanup time after final disconnect |
-| --- | --- | --- |
-| Close TCP connection | Owned resources removed; reaper exited; controls retained | 2.77s |
-| `SIGKILL` connection-holder process | Same | 2.48s |
-| `SIGKILL` connection-holder process group | Same | 2.82s |
-| Reconnect within grace period | Resources survived beyond the original grace deadline; final disconnect cleaned them | 2.48s |
+| Trigger                                   | Result                                                                               | Cleanup time after final disconnect |
+| ----------------------------------------- | ------------------------------------------------------------------------------------ | ----------------------------------- |
+| Close TCP connection                      | Owned resources removed; reaper exited; controls retained                            | 2.77s                               |
+| `SIGKILL` connection-holder process       | Same                                                                                 | 2.48s                               |
+| `SIGKILL` connection-holder process group | Same                                                                                 | 2.82s                               |
+| Reconnect within grace period             | Resources survived beyond the original grace deadline; final disconnect cleaned them | 2.48s                               |
 
 Times are individual observations, not performance guarantees. The harness exited
 successfully and removed its control resources. No spike containers, networks,

@@ -29,12 +29,14 @@ func (c projectClient) ContainerList(_ context.Context, opts client.ContainerLis
 		{Labels: map[string]string{}},
 	}}, nil
 }
+
 func (c projectClient) NetworkList(context.Context, client.NetworkListOptions) (client.NetworkListResult, error) {
 	if c.fail == "networks" {
 		return client.NetworkListResult{}, errors.New("unavailable")
 	}
 	return client.NetworkListResult{Items: []network.Summary{{Labels: map[string]string{api.ProjectLabel: "verity-a"}}}}, nil
 }
+
 func (c projectClient) VolumeList(context.Context, client.VolumeListOptions) (client.VolumeListResult, error) {
 	if c.fail == "volumes" {
 		return client.VolumeListResult{}, errors.New("unavailable")

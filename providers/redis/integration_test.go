@@ -121,9 +121,19 @@ func TestProvisionConcurrent(t *testing.T) {
 
 	// The commands that reach across suites or the server are refused.
 	for _, cmd := range [][]any{
-		{"FLUSHALL"}, {"FLUSHDB"}, {"KEYS", "*"}, {"CONFIG", "GET", "maxmemory"}, {"SELECT", 1},
-		{"RANDOMKEY"}, {"DBSIZE"}, {"INFO"}, {"SCRIPT", "FLUSH"}, {"FUNCTION", "LOAD", "x"}, {"PUBSUB", "CHANNELS"},
-		{"ACL", "LIST"}, {"CLIENT", "LIST"},
+		{"FLUSHALL"},
+		{"FLUSHDB"},
+		{"KEYS", "*"},
+		{"CONFIG", "GET", "maxmemory"},
+		{"SELECT", 1},
+		{"RANDOMKEY"},
+		{"DBSIZE"},
+		{"INFO"},
+		{"SCRIPT", "FLUSH"},
+		{"FUNCTION", "LOAD", "x"},
+		{"PUBSUB", "CHANNELS"},
+		{"ACL", "LIST"},
+		{"CLIENT", "LIST"},
 	} {
 		require.ErrorContains(t, a.Client().Do(ctx, cmd...).Err(), "NOPERM", "%v", cmd)
 	}

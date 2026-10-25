@@ -54,7 +54,8 @@ func startReaper(ctx context.Context, docker command.Cli, project string) (*reap
 	created, err := engine.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Name:   project + "-reaper",
 		Config: &container.Config{Image: ryukImage, ExposedPorts: network.PortSet{port: {}}, Labels: map[string]string{"dev.verity.reaper-for": project}},
-		HostConfig: &container.HostConfig{AutoRemove: true,
+		HostConfig: &container.HostConfig{
+			AutoRemove:   true,
 			Mounts:       []mount.Mount{{Type: mount.TypeBind, Source: socket, Target: "/var/run/docker.sock"}},
 			PortBindings: network.PortMap{port: {{HostIP: netip.MustParseAddr("127.0.0.1")}}},
 		},
