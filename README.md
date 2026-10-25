@@ -288,6 +288,39 @@ per suite, then multiply by concurrent suites and leave headroom for admin and
 schema connections under the server's `max_connections`. A database limit does
 not increase that server-wide budget.
 
+### Per-test isolation
+
+`RunSuite` shares one suite instance and its resources across its `Test*` methods.
+For a fresh database per case, call `NewSuite` inside each `t.Run` instead:
+
+```go
+func TestCases(t *testing.T) {
+    for _, name := range []string{"first", "second"} {
+        t.Run(name, func(t *testing.T) {
+            t.Parallel()
+            s := verity.NewSuite[MySuite](t, verity.Use("db"))
+            db := verity.Get[*postgres.Database](s, "db")
+            if err := db.DB().PingContext(t.Context()); err != nil {
+                t.Fatal(err)
+            }
+            // Exercise this case using its own database or WithService instance.
+        })
+    }
+}
+```
+
+Each call gets a fresh suite ID and clone; the subtest's cleanup releases its
+resources. Put `WithService` inside that same call if each case needs a service.
+Go's `-parallel` flag controls how many parallel subtests run at once. There is
+no `PerTest()` option or second provisioning path.
+
+In a single Linux ARM64/Postgres 17.11 spike, 50 parallel subtests provisioned
+in 416 ms and finished including cleanup in 2.68 s. Each suite used one database
+connection; the ready-barrier snapshot counted 54 client connections including
+admin and measurement connections. These are observations with a tiny seeded
+schema and no application service, not performance guarantees; budget for your
+schema and pools. See the [spike details](docs/milestone-2.md#step-0-spikes).
+
 ### Backend logs on test failure
 
 When a `Test*` method run by `verity.RunSuite` fails, Verity automatically adds

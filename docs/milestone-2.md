@@ -2,8 +2,9 @@
 
 Status: in progress, 2026-10-24. Shared discovery, host-gateway injection, Redis,
 automatic failure logs, `verity down` with Ryuk recovery, and Postgres per-suite
-roles and connection limits are implemented. The mock-server provider is deferred
-for later discussion; remaining steps and spikes are pending. Companion to
+roles, connection limits, and documented per-test isolation are implemented. The
+mock-server provider is deferred for later discussion; Docker Desktop validation
+and final acceptance remain pending. Companion to
 `DESIGN.md`, which stays the source of truth for milestone 1 and the overall
 design. Rows marked "default" are proposals that nobody has confirmed.
 
@@ -73,7 +74,7 @@ Unconfirmed rows are marked "default". Change them here before implementing.
 | Failure-log capture transport                      | The library shells out to `docker compose -p <project> logs --since <test start> --no-color --tail N` in a `t.Cleanup` when the test failed. It never imports `docker/compose`. If `docker` is not on PATH, it logs one line saying so and carries on. The project name comes from a new optional discovery field, `project`. (default)                                                        |
 | Failure-log noise                                  | Logs are stack-wide for the window, so parallel suites show up in each other's output. Accepted and documented. Filtering by suite is out of scope. (default)                                                                                                                                                                                                                                  |
 | Hard-kill cleanup                                  | Two layers: normal Compose teardown plus a per-run Ryuk reaper for connection loss; `verity down [--all]` remains manual recovery. `--keep` skips Ryuk.                                                                                                                                                                                                                                        |
-| Per-test isolation                                 | No new provisioning engine. Document and test calling `NewSuite` inside a subtest, and add `verity.PerTest()` only if the spike shows `RunSuite` cannot give a fresh suite value per method safely. (default)                                                                                                                                                                                  |
+| Per-test isolation | Call `NewSuite` inside each subtest for fresh resources. Document and test that pattern; no `PerTest()` option or second provisioning path. |
 | Per-suite Postgres roles before `CONNECTION LIMIT` | Roles come first, because superusers are exempt from a database's `CONNECTION LIMIT` (confirmed by spike 4). Until a suite connects as a non-superuser, the limit does nothing. (default)                                                                                                                                                                                                      |
 | Container mode                                     | Moved to milestone 3. It is the largest item by far and its open question (macOS bind-mount and VM CPU cost) is unmeasured. **This is the user's call.** (default)                                                                                                                                                                                                                             |
 
@@ -120,8 +121,8 @@ which spike gates it.
    macOS, and how it behaves when `docker` is absent or the project is gone.
 7. **Per-test isolation (gates step 8).** Run `NewSuite` inside a subtest 50 times
    in parallel against one Postgres and measure clone time and connection count.
-   Check whether a fresh suite value per `Test*` method is achievable in `RunSuite`
-   without surprising shared-field semantics.
+   Keep `RunSuite`'s shared suite and hook semantics; the user chose to skip a
+   `PerTest()` option.
 
 Acceptance: each bullet is confirmed or replaced with a working alternative, and
 the decisions table above is updated for any default that changes.
@@ -161,6 +162,33 @@ the decisions table above is updated for any default that changes.
   public access has been revoked. Tests cover eight concurrent provisions,
   forbidden server operations, repeatable release, and role cleanup after a
   failed clone.
+
+- **Spike 7, per-test isolation (2026-10-24).** A throwaway integration test ran
+  50 parallel subtests, each calling `NewSuite` against one Postgres 17.11 Alpine
+  container on Linux ARM64, Go 1.27.0 (`-parallel=50`, `-count=1`). The source had
+  two tables in two schemas, serial sequences, and one seed row; no application
+  service ran. Every subtest inserted primary key 2 and read its own value. A
+  barrier held all suites until their connections were counted, then allowed
+  subtest cleanup. All 50 databases were distinct; cleanup left no suite
+  databases or roles.
+
+  | Measurement | Single-run result |
+  | --- | --- |
+  | All 50 cases provisioned and queried, before releasing the barrier | 416 ms |
+  | Total wall time including cleanup | 2.68 s |
+  | `NewSuite` latency under contention: min / median / p95 / max | 83 / 339 / 410 / 412 ms |
+  | Suite connections at the ready barrier | 50 (one per suite) |
+  | Provider admin pool connections at that barrier | 2 (configured maximum 4) |
+  | Total client connections at that barrier | 54 (50 suite + 2 provider + 2 harness) |
+  | Postgres `max_connections` | 100 |
+
+  Latency includes role creation, cloning, grants, and pool queueing; it does not
+  measure `CREATE DATABASE` alone. Connection counts are a barrier snapshot, not
+  a sampled peak. These observations are not performance guarantees for larger
+  schemas or service pools. The permanent `TestThroughNewSuite` integration test
+  covers two parallel subtests and verifies data isolation and automatic pool,
+  database, and role cleanup. `RunSuite` retains the caller's suite instance,
+  fields, and suite hooks; per the user's decision, no `PerTest()` option is added.
 
 ## Step 1: Shared prerequisite
 
@@ -321,16 +349,17 @@ drops the role and the database.
 
 ## Step 8: Per-test isolation
 
-Gated by spike 7.
+Implemented (2026-10-24); spike 7 passed with 50 parallel subtests. The README
+shows `NewSuite` inside `t.Run`, documents the measured provisioning cost and
+connection count, and explains resource lifetimes and `-parallel`. The permanent
+Postgres integration test runs two parallel subtests, inserts the same primary
+key independently, verifies each sees its own data, and checks cleanup removes
+both pools, databases, and roles.
 
-- Add a test and a README paragraph showing `NewSuite` inside `t.Run`, with the
-  measured cost from the spike.
-- Add `verity.PerTest()` only if the spike shows `RunSuite` can hand each `Test*`
-  method a fresh suite value safely; otherwise document the in-subtest pattern and
-  stop. Do not add a second provisioning path.
-
-Acceptance: a test with two subtests, each calling `NewSuite`, sees disjoint data;
-clone and connection numbers from the spike are recorded in the docs.
+No `PerTest()` option is planned. `RunSuite` continues to share the suite instance
+and its resources across methods; callers opt into isolation explicitly by
+creating suites inside subtests. This preserves caller-initialized fields and
+suite-hook semantics without a second provisioning path.
 
 ## Definition of done
 

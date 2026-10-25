@@ -198,26 +198,44 @@ func TestMissingSourceIsAnError(t *testing.T) {
 
 type dbSuite struct{ verity.Suite }
 
-// TestThroughNewSuite runs the real provider through verity.NewSuite: it checks
-// the init registration, verity.Get, and that t.Cleanup releases the pool.
+// TestThroughNewSuite checks real provisioning and cleanup for parallel subtests.
 func TestThroughNewSuite(t *testing.T) {
 	ep := sourceDatabase(t, endpoint(t))
-
+	admin := open(t, ep, adminDatabase)
 	doc, err := core.Discovery{RunID: randHex(t)[:6], Backends: map[string]core.Endpoint{"db": ep}}.Encode()
 	require.NoError(t, err)
 	t.Setenv(core.DiscoveryEnv, doc)
 
-	var db *Database
-	t.Run("suite", func(t *testing.T) {
-		s := verity.NewSuite[dbSuite](t, verity.Use("db"))
-		db = verity.Get[*Database](s, "db")
+	dbs := make([]*Database, 2)
+	t.Run("cases", func(t *testing.T) {
+		for i := range dbs {
+			t.Run(strconv.Itoa(i), func(t *testing.T) {
+				t.Parallel()
+				s := verity.NewSuite[dbSuite](t, verity.Use("db"))
+				db := verity.Get[*Database](s, "db")
+				dbs[i] = db
 
-		var count int
-		require.NoError(t, db.DB().QueryRow("SELECT count(*) FROM items").Scan(&count))
-		require.Equal(t, 1, count)
+				var count int
+				require.NoError(t, db.DB().QueryRow("SELECT count(*) FROM items").Scan(&count))
+				require.Equal(t, 1, count, "each subtest starts with only the seed")
+				_, err := db.DB().Exec("INSERT INTO items (id, v) VALUES (2, $1)", t.Name())
+				require.NoError(t, err, "the same primary key can be used in both subtests")
+				var value string
+				require.NoError(t, db.DB().QueryRow("SELECT v FROM items WHERE id = 2").Scan(&value))
+				require.Equal(t, t.Name(), value)
+			})
+		}
 	})
 
-	require.Error(t, db.DB().Ping(), "the suite's cleanup released the pool")
+	require.NotNil(t, dbs[0])
+	require.NotNil(t, dbs[1])
+	require.NotEqual(t, dbs[0].Name(), dbs[1].Name())
+	for _, db := range dbs {
+		require.Error(t, db.DB().Ping(), "the subtest's cleanup released its pool")
+		var exists bool
+		require.NoError(t, admin.QueryRow("SELECT EXISTS (SELECT FROM pg_database WHERE datname = $1) OR EXISTS (SELECT FROM pg_roles WHERE rolname = $1)", db.Name()).Scan(&exists))
+		require.False(t, exists, "the subtest's cleanup removed its database and role")
+	}
 }
 
 func TestRoleIsolationAndConnectionLimit(t *testing.T) {
