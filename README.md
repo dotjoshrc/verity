@@ -346,8 +346,13 @@ Logo adapted from the Go Gopher by Renee French, licensed [CC BY 3.0](https://cr
 
 The library and providers use the root module, `github.com/dotjoshrc/verity`.
 The CLI has its own module in `cmd/verity`, keeping Docker and Compose dependencies
-out of the library module. The checked-in `go.work` connects both for local
-changes; existing example commands work from this checkout.
+out of the library module. Create an ignored local workspace to connect both
+modules and run the existing example commands from this checkout:
+
+```sh
+go work init . ./cmd/verity
+go work edit -replace=github.com/dotjoshrc/verity@v0.0.0=.
+```
 
 Run checks for both modules from the repository root:
 

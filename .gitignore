@@ -21,8 +21,8 @@
 # Dependency directories (remove the comment below to include it)
 vendor/
 
-# Shared workspace, local generated checksums
-!go.work
+# Local workspace files
+go.work
 go.work.sum
 
 # End of https://www.toptal.com/developers/gitignore/api/go
