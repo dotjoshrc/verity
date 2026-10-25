@@ -1,0 +1,9 @@
+go 1.27
+
+use (
+	.
+	./cmd/verity
+)
+
+// Resolve the development pin without fetching an unpublished library version.
+replace github.com/dotjoshrc/verity v0.0.0 => .

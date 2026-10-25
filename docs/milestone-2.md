@@ -338,7 +338,8 @@ From `examples/`, one example suite uses Postgres, Redis, and the mock server
 together, runs two packages in parallel, passes under `verity run`, shows backend
 logs for a deliberately failing test, and leaves no containers or networks behind.
 After a `SIGKILL` of the CLI, one `verity down --all` returns the daemon to a clean
-state. `go build`, `go vet`, `go test ./...`, and the Docker-gated tests pass.
+state. `go build`, `go vet`, and `go test` cover both modules (root `./...` and
+`./cmd/verity/...`), and the Docker-gated tests pass.
 
 ## Out of scope for milestone 2
 

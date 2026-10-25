@@ -341,3 +341,56 @@ unverified.
 ---
 
 Logo adapted from the Go Gopher by Renee French, licensed [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/).
+
+## Developing Verity
+
+The library and providers use the root module, `github.com/dotjoshrc/verity`.
+The CLI has its own module in `cmd/verity`, keeping Docker and Compose dependencies
+out of the library module. The checked-in `go.work` connects both for local
+changes; existing example commands work from this checkout.
+
+Run checks for both modules from the repository root:
+
+```sh
+go build ./... ./cmd/verity/...
+go vet ./... ./cmd/verity/...
+go test ./... ./cmd/verity/...
+```
+
+`mise run test` and `mise run lint` check both modules. `mise run test-integration`
+also starts the Postgres and Redis fixtures. Run that task without
+`VERITY_TEST_DOCKER`. After it finishes and removes its fixtures, run the CLI's
+Docker lifecycle tests separately against a clean Docker daemon:
+
+```sh
+VERITY_TEST_DOCKER=1 go test -count=1 ./cmd/verity/...
+```
+
+Those tests check for leftover stacks and exercise destructive `down --all`
+cleanup, so they must not overlap the provider fixtures or other Verity runs.
+
+To check the library independently of the workspace, run
+`GOWORK=off go test ./...` at the repository root. Run `GOWORK=off go mod tidy`
+inside each module when its dependencies change. The CLI currently uses a `v0.0.0` development pin, resolved locally by `go.work`.
+Until the first post-split library version is published, CLI tidying needs a
+temporary local replacement:
+
+```sh
+cd cmd/verity
+go mod edit -replace=github.com/dotjoshrc/verity=../..
+GOWORK=off go mod tidy
+go mod edit -dropreplace=github.com/dotjoshrc/verity
+```
+
+Keep replacements in `go.work`, not the CLI's `go.mod`: module replacements
+prevent versioned `go install` commands from working.
+
+The library and CLI are released separately: root tags such as `v0.1.0` version
+the library, and tags such as `cmd/verity/v0.1.0` version the CLI. For the first release, publish a **post-split** library version, replace the CLI's
+`v0.0.0` development pin with it, and run `GOWORK=off go mod tidy`,
+`GOWORK=off go build .`, and `GOWORK=off go test ./...` inside `cmd/verity`.
+A pre-split library version also contains the CLI package and causes ambiguous
+imports. Remove the development replacement from `go.work` after updating the pin.
+Installation
+still uses `go install github.com/dotjoshrc/verity/cmd/verity@latest`. Private
+repositories require the usual Go authentication and `GOPRIVATE` configuration.

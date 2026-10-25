@@ -7,14 +7,14 @@ import (
 	"runtime/debug"
 	"strings"
 	"testing"
-
-	"github.com/stretchr/testify/require"
 )
 
 func getCaller(t *testing.T) string {
 	pc, _, _, _ := runtime.Caller(2)
 	funcName, err := url.QueryUnescape(runtime.FuncForPC(pc).Name())
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("decode caller name: %v", err)
+	}
 
 	nameParts := strings.Split(funcName, "/")
 
