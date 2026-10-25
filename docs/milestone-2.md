@@ -5,7 +5,7 @@ automatic failure logs, `verity down` with Ryuk recovery, and Postgres per-suite
 roles, connection limits, and documented per-test isolation are implemented. The
 mock-server provider is deferred for later discussion; Docker Desktop validation
 and final acceptance remain pending. Companion to
-`DESIGN.md`, which stays the source of truth for milestone 1 and the overall
+[milestone 1](milestone-1.md), which stays the source of truth for milestone 1 and the overall
 design. Rows marked "default" are proposals that nobody has confirmed.
 
 ## Summary
@@ -56,7 +56,7 @@ in this milestone (see "Out of scope").
 **Non-goals**
 
 - Anything in "Out of scope" below.
-- A public provider API (still `internal/core`; unchanged from `DESIGN.md`).
+- A public provider API (still `internal/core`; unchanged from [milestone 1](milestone-1.md)).
 
 ## Decisions for milestone 2
 
@@ -70,7 +70,7 @@ Unconfirmed rows are marked "default". Change them here before implementing.
 | Redis credentials                                  | Label-only (`verity.password`, `verity.user`). The official image takes `--requirepass` on its command line, not from env, so there is nothing to read from the service environment. A missing password with a password-protected server fails with a message naming the label. (default)                                                                                                      |
 | Mock server product                                | WireMock, namespaced by URL path prefix `/verity/<suite>/`; the service must take its upstream base URL from an env var. **This is the user's call.** WireMock is the default because it has an admin API, a healthcheck, and a stub-by-metadata cleanup. (default)                                                                                                                            |
 | Mock-server contract on the service                | Same shape as the Redis prefix: it only isolates if the service reads the base URL (and prefix) the provider hands it. Documented as a requirement on the service under test, next to the in-process runner requirements.                                                                                                                                                                      |
-| Callbacks on Linux (`host-gateway`)                | The CLI injects `extra_hosts: ["host.docker.internal:host-gateway"]` into every service that does not already define that host. Decided by the host-gateway spike; closes `DESIGN.md` open question 4. (default)                                                                                                                                                                               |
+| Callbacks on Linux (`host-gateway`)                | The CLI injects `extra_hosts: ["host.docker.internal:host-gateway"]` into every service that does not already define that host. Decided by the host-gateway spike; closes [milestone 1](milestone-1.md) open question 4. (default)                                                                                                                                                                               |
 | Failure-log capture transport                      | The library shells out to `docker compose -p <project> logs --since <test start> --no-color --tail N` in a `t.Cleanup` when the test failed. It never imports `docker/compose`. If `docker` is not on PATH, it logs one line saying so and carries on. The project name comes from a new optional discovery field, `project`. (default)                                                        |
 | Failure-log noise                                  | Logs are stack-wide for the window, so parallel suites show up in each other's output. Accepted and documented. Filtering by suite is out of scope. (default)                                                                                                                                                                                                                                  |
 | Hard-kill cleanup                                  | Two layers: normal Compose teardown plus a per-run Ryuk reaper for connection loss; `verity down [--all]` remains manual recovery. `--keep` skips Ryuk.                                                                                                                                                                                                                                        |
@@ -220,7 +220,7 @@ network-owning service receives the mapping.
 
 Acceptance: a unit test on a loaded project covers added, kept, and
 user-overridden. A Docker-gated test shows a container reaches a host listener on
-Linux. `DESIGN.md` open question 4 is marked closed.
+Linux. [milestone 1](milestone-1.md) open question 4 is marked closed.
 
 ## Step 3: Redis provider
 
@@ -334,11 +334,11 @@ Server-level operations previously available through suite DSNs are now denied.
 
 - Roles: each suite gets a login role that owns its clone and can connect to
   nothing else, with no `CREATEDB`, `CREATEROLE`, or superuser. `DATABASE_URL`
-  carries that role. This also removes the weakness `DESIGN.md` documents (a
+  carries that role. This also removes the weakness [milestone 1](milestone-1.md) documents (a
   suite's DSN can reach any other suite's database). `Release` drops the role.
 - `postgres.ConnLimit(n)` option: `CREATE DATABASE ... CONNECTION LIMIT n`, off by
   default so the service's own pool is not capped unexpectedly. Documented with
-  the pool-times-suites arithmetic from `DESIGN.md`.
+  the pool-times-suites arithmetic from [milestone 1](milestone-1.md).
 - Compatibility: suites that need superuser (server-wide objects) are already
   unsupported; the error from a denied statement is left as Postgres's.
 
