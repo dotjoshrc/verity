@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="docs/verity-judge-ready.svg" alt="Verity" width="150">
+  <img src="docs/verity-judge.svg" alt="Verity" width="150">
   <h1>Verity</h1>
   <p>
     <i>A Go framework for integration tests against real, live services.</i>
