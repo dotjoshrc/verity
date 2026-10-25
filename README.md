@@ -371,10 +371,6 @@ project. For an external container, configure the mapping on that container.
 Callbacks have been verified on Linux. Docker Desktop compatibility remains
 unverified.
 
----
-
-Logo adapted from the Go Gopher by Renee French, licensed [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/).
-
 ## Developing Verity
 
 The library and providers use the root module, `github.com/dotjoshrc/verity`.
@@ -432,3 +428,7 @@ imports. Remove the development replacement from `go.work` after updating the pi
 Installation
 still uses `go install github.com/dotjoshrc/verity/cmd/verity@latest`. Private
 repositories require the usual Go authentication and `GOPRIVATE` configuration.
+
+---
+
+Logo adapted from the Go Gopher by Renee French, licensed [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/).
